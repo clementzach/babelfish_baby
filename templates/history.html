@@ -1,0 +1,373 @@
+{% extends "base.html" %}
+
+{% block title %}Cry History - BabelFish Baby{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <div class="dashboard-header">
+        <h1>🍼 BabelFish Baby</h1>
+        <div class="header-actions">
+            <a href="/record" class="btn-record">📹 Record New Cry</a>
+            <button id="logoutBtn" class="btn-logout">Logout</button>
+        </div>
+    </div>
+
+    <!-- Banner for new users -->
+    <div id="newUserBanner" class="banner" style="display: none;">
+        <strong>👋 Welcome!</strong> Please label your first few recordings to help us learn your baby's cry patterns.
+    </div>
+
+    <!-- Cry list -->
+    <div id="cryList" class="cry-list">
+        <!-- Will be populated by JavaScript -->
+    </div>
+
+    <!-- Empty state -->
+    <div id="emptyState" class="empty-state" style="display: none;">
+        <h2>No recordings yet</h2>
+        <p>Click "Record New Cry" to get started!</p>
+        <a href="/record" class="btn-record" style="margin-top: 20px; display: inline-block;">📹 Record New Cry</a>
+    </div>
+
+    <!-- Loading state -->
+    <div id="loadingState" class="processing" style="text-align: center; padding: 40px;">
+        <div class="spinner"></div>
+        <p>Loading your cry history...</p>
+    </div>
+</div>
+
+<!-- Modal for labeling/editing -->
+<div id="labelModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <h2 id="modalTitle">Label Cry</h2>
+        <form id="labelForm">
+            <input type="hidden" id="labelCryId">
+
+            <div class="form-group">
+                <label for="categorySelect">Why was baby crying?</label>
+                <select id="categorySelect" required>
+                    <option value="">Select a reason...</option>
+                    <!-- Will be populated by JavaScript -->
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="notesInput">Notes (optional)</label>
+                <textarea id="notesInput" rows="3" maxlength="500" placeholder="Additional details..."></textarea>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" id="cancelBtn" class="btn-small btn-reject">Cancel</button>
+                <button type="submit" class="btn-small btn-validate">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let categories = [];
+let cries = [];
+
+// Load data on page load
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadCategories();
+    await loadCries();
+});
+
+// Logout handler
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+    try {
+        await fetch('/auth/logout', { method: 'POST' });
+        window.location.href = '/';
+    } catch (error) {
+        showNotification('Logout failed', 'error');
+    }
+});
+
+// Load categories
+async function loadCategories() {
+    try {
+        const response = await fetch('/api/categories');
+        categories = await response.json();
+
+        // Populate category select
+        const select = document.getElementById('categorySelect');
+        categories.forEach(cat => {
+            const option = document.createElement('option');
+            option.value = cat.category_id;
+            option.textContent = `${cat.name.charAt(0).toUpperCase() + cat.name.slice(1)} - ${cat.description}`;
+            select.appendChild(option);
+        });
+    } catch (error) {
+        showNotification('Failed to load categories', 'error');
+    }
+}
+
+// Load cry history
+async function loadCries() {
+    document.getElementById('loadingState').style.display = 'block';
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('cryList').style.display = 'none';
+
+    try {
+        const response = await fetch('/api/cries/history');
+        cries = await response.json();
+
+        document.getElementById('loadingState').style.display = 'none';
+
+        if (cries.length === 0) {
+            document.getElementById('emptyState').style.display = 'block';
+        } else {
+            document.getElementById('cryList').style.display = 'flex';
+            renderCries();
+            checkNewUserBanner();
+        }
+    } catch (error) {
+        document.getElementById('loadingState').style.display = 'none';
+        showNotification('Failed to load cry history', 'error');
+    }
+}
+
+// Check if user needs to see banner
+function checkNewUserBanner() {
+    const validatedCount = cries.filter(c => c.validation_status === true).length;
+    if (validatedCount < 3) {
+        document.getElementById('newUserBanner').style.display = 'block';
+    }
+}
+
+// Render cry list
+function renderCries() {
+    const listEl = document.getElementById('cryList');
+    listEl.innerHTML = '';
+
+    cries.forEach(cry => {
+        const item = createCryItem(cry);
+        listEl.appendChild(item);
+    });
+}
+
+// Create a cry item element
+function createCryItem(cry) {
+    const div = document.createElement('div');
+    div.className = 'cry-item';
+    div.dataset.cryId = cry.cry_id;
+
+    // Header with time and category
+    const header = document.createElement('div');
+    header.className = 'cry-header';
+
+    const time = document.createElement('span');
+    time.className = 'cry-time';
+    time.textContent = cry.recorded_at_relative;
+    time.title = cry.recorded_at;
+    header.appendChild(time);
+
+    if (cry.category) {
+        const categoryBadge = document.createElement('span');
+        categoryBadge.className = `cry-category category-${cry.category}`;
+        categoryBadge.textContent = cry.category.charAt(0).toUpperCase() + cry.category.slice(1);
+        header.appendChild(categoryBadge);
+    }
+
+    div.appendChild(header);
+
+    // Notes
+    if (cry.notes) {
+        const notes = document.createElement('div');
+        notes.className = 'cry-notes';
+        notes.textContent = cry.notes;
+        div.appendChild(notes);
+    }
+
+    // Status indicators
+    if (cry.needs_labeling) {
+        const badge = document.createElement('div');
+        badge.className = 'banner';
+        badge.style.marginTop = '10px';
+        badge.style.padding = '8px';
+        badge.textContent = '⚠️ Needs Labeling';
+        div.appendChild(badge);
+    } else if (cry.validation_status === null && cry.category_source === 'ai') {
+        const badge = document.createElement('div');
+        badge.style.marginTop = '10px';
+        badge.style.padding = '8px';
+        badge.style.backgroundColor = '#E3F2FD';
+        badge.style.borderRadius = '5px';
+        badge.textContent = '🤖 AI Prediction - Please Validate';
+        div.appendChild(badge);
+    }
+
+    // Actions
+    const actions = document.createElement('div');
+    actions.className = 'cry-actions';
+
+    if (cry.needs_labeling) {
+        const labelBtn = document.createElement('button');
+        labelBtn.className = 'btn-small btn-validate';
+        labelBtn.textContent = 'Label';
+        labelBtn.onclick = () => openLabelModal(cry);
+        actions.appendChild(labelBtn);
+    } else if (cry.validation_status === null && cry.category_source === 'ai') {
+        const correctBtn = document.createElement('button');
+        correctBtn.className = 'btn-small btn-validate';
+        correctBtn.textContent = '✓ Correct';
+        correctBtn.onclick = () => validateCry(cry.cry_id, true);
+        actions.appendChild(correctBtn);
+
+        const wrongBtn = document.createElement('button');
+        wrongBtn.className = 'btn-small btn-reject';
+        wrongBtn.textContent = '✗ Wrong';
+        wrongBtn.onclick = () => openLabelModal(cry, true);
+        actions.appendChild(wrongBtn);
+    }
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn-small btn-edit';
+    editBtn.textContent = 'Edit Notes';
+    editBtn.onclick = () => openEditModal(cry);
+    actions.appendChild(editBtn);
+
+    // Get Advice button
+    const adviceBtn = document.createElement('button');
+    adviceBtn.className = 'btn-small btn-advice';
+    adviceBtn.textContent = '💬 Get Advice';
+    adviceBtn.onclick = () => window.location.href = `/chat/${cry.cry_id}`;
+    actions.appendChild(adviceBtn);
+
+    div.appendChild(actions);
+
+    return div;
+}
+
+// Open label modal
+function openLabelModal(cry, isCorrection = false) {
+    document.getElementById('modalTitle').textContent = isCorrection ? 'Correct Prediction' : 'Label Cry';
+    document.getElementById('labelCryId').value = cry.cry_id;
+    document.getElementById('categorySelect').value = cry.category_id || '';
+    document.getElementById('notesInput').value = cry.notes || '';
+    document.getElementById('labelModal').style.display = 'flex';
+}
+
+// Open edit notes modal
+function openEditModal(cry) {
+    document.getElementById('modalTitle').textContent = 'Edit Notes';
+    document.getElementById('labelCryId').value = cry.cry_id;
+    document.getElementById('categorySelect').value = cry.category_id || '';
+    document.getElementById('categorySelect').disabled = true;
+    document.getElementById('notesInput').value = cry.notes || '';
+    document.getElementById('labelModal').style.display = 'flex';
+}
+
+// Close modal
+document.getElementById('cancelBtn').addEventListener('click', () => {
+    document.getElementById('labelModal').style.display = 'none';
+    document.getElementById('categorySelect').disabled = false;
+});
+
+// Submit label form
+document.getElementById('labelForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const cryId = document.getElementById('labelCryId').value;
+    const categoryId = parseInt(document.getElementById('categorySelect').value);
+    const notes = document.getElementById('notesInput').value;
+    const isEditOnly = document.getElementById('categorySelect').disabled;
+
+    try {
+        if (isEditOnly) {
+            // Just update notes
+            await fetch(`/api/cries/${cryId}/notes`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ notes })
+            });
+        } else {
+            // Validate/label
+            await fetch(`/api/cries/${cryId}/validate`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    validation: false,
+                    category_id: categoryId,
+                    notes: notes
+                })
+            });
+        }
+
+        document.getElementById('labelModal').style.display = 'none';
+        document.getElementById('categorySelect').disabled = false;
+        showNotification('Saved successfully', 'success');
+        await loadCries();
+    } catch (error) {
+        showNotification('Failed to save', 'error');
+    }
+});
+
+// Validate cry as correct
+async function validateCry(cryId, isCorrect) {
+    try {
+        await fetch(`/api/cries/${cryId}/validate`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ validation: true })
+        });
+
+        showNotification('Validation saved', 'success');
+        await loadCries();
+    } catch (error) {
+        showNotification('Failed to validate', 'error');
+    }
+}
+</script>
+
+<style>
+/* Modal styles */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-content {
+    background-color: white;
+    padding: 30px;
+    border-radius: 10px;
+    max-width: 500px;
+    width: 90%;
+}
+
+.modal-content h2 {
+    margin-bottom: 20px;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 20px;
+}
+
+select, textarea {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 1em;
+}
+
+select:focus, textarea:focus {
+    outline: none;
+    border-color: #4A90E2;
+}
+</style>
+{% endblock %}

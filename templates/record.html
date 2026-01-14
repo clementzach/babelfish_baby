@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Record Cry - BabelFish Baby{% endblock %}
+
+{% block content %}
+<div class="recording-container">
+    <div class="recording-controls">
+        <h1>Record Baby Cry</h1>
+        <p id="instructions">Click the button below to start recording</p>
+
+        <!-- Record button -->
+        <button id="recordButton" class="record-button">
+            <span id="buttonText">Start Recording</span>
+        </button>
+
+        <!-- Timer -->
+        <div id="timer" class="timer" style="display: none;">00:00</div>
+
+        <!-- Processing -->
+        <div id="processing" class="processing" style="display: none;">
+            <div class="spinner"></div>
+            <p>Processing your recording...</p>
+        </div>
+
+        <!-- Back button -->
+        <div style="margin-top: 30px;">
+            <a href="/history" style="color: #4A90E2; text-decoration: none;">← Back to History</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', path='/js/recorder.js') }}"></script>
+{% endblock %}

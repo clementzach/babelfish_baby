@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}Login - BabelFish Baby{% endblock %}
+
+{% block content %}
+<div class="login-container">
+    <div class="logo-section">
+        <h1>🍼 BabelFish Baby</h1>
+        <p>Understand your baby's cries with AI</p>
+    </div>
+
+    <div class="forms-container">
+        <div class="form-section">
+            <h2>Login</h2>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="login-username">Username</label>
+                    <input type="text" id="login-username" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="login-password">Password</label>
+                    <input type="password" id="login-password" name="password" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Login</button>
+            </form>
+        </div>
+
+        <div class="divider">OR</div>
+
+        <div class="form-section">
+            <h2>Register</h2>
+            <form id="registerForm">
+                <div class="form-group">
+                    <label for="register-username">Username</label>
+                    <input type="text" id="register-username" name="username" required
+                           pattern="[a-zA-Z0-9_]{3,50}"
+                           title="3-50 characters, letters, numbers, and underscores only">
+                </div>
+                <div class="form-group">
+                    <label for="register-password">Password</label>
+                    <input type="password" id="register-password" name="password" required minlength="8">
+                </div>
+                <div class="form-group">
+                    <label for="register-email">Email (optional)</label>
+                    <input type="email" id="register-email" name="email">
+                </div>
+                <button type="submit" class="btn btn-secondary">Register</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Login form handler
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = {
+            username: document.getElementById('login-username').value,
+            password: document.getElementById('login-password').value
+        };
+
+        try {
+            const response = await fetch('/auth/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(formData)
+            });
+
+            if (response.ok) {
+                window.location.href = '/history';
+            } else {
+                const error = await response.json();
+                alert(error.detail || 'Login failed');
+            }
+        } catch (error) {
+            alert('Login failed: ' + error.message);
+        }
+    });
+
+    // Register form handler
+    document.getElementById('registerForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = {
+            username: document.getElementById('register-username').value,
+            password: document.getElementById('register-password').value,
+            email: document.getElementById('register-email').value || null
+        };
+
+        try {
+            const response = await fetch('/auth/register', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(formData)
+            });
+
+            if (response.ok) {
+                window.location.href = '/history';
+            } else {
+                const error = await response.json();
+                alert(error.detail || 'Registration failed');
+            }
+        } catch (error) {
+            alert('Registration failed: ' + error.message);
+        }
+    });
+</script>
+{% endblock %}
