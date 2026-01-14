@@ -19,8 +19,8 @@ pydub==0.25.1
 soundfile==0.12.1
 
 # AI/ML
-openai==1.10.0
-chromadb==0.4.22
+openai==2.15.0
+chromadb==1.4.0
 requests==2.31.0
 
 # Utilities
@@ -32,3 +32,5 @@ pydantic-settings==2.1.0
 pytest==7.4.4
 pytest-asyncio==0.23.3
 httpx==0.26.0
+playwright==1.57.0
+pytest-playwright==0.7.1
