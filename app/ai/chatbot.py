@@ -7,7 +7,7 @@ from typing import List, Dict
 from sqlalchemy.orm import Session
 from openai import OpenAI
 
-from app.models import CryInstance, CryCategory, ChatConversation
+from app.models import CryInstance, ChatConversation
 
 logger = logging.getLogger(__name__)
 
@@ -43,13 +43,6 @@ async def generate_advice(
     if not cry:
         raise ValueError(f"Cry not found: {cry_id}")
 
-    # Get category name
-    category_name = "unknown"
-    if cry.category_id:
-        category = db.query(CryCategory).filter(CryCategory.id == cry.category_id).first()
-        if category:
-            category_name = category.name
-
     # Get chat history
     chat_history = (
         db.query(ChatConversation)
@@ -58,16 +51,22 @@ async def generate_advice(
         .all()
     )
 
-    # Build context
+    # Build context with free-text reason and solution
+    reason_text = cry.reason if cry.reason else "not yet determined"
+    solution_text = cry.solution if cry.solution else "not yet recorded"
+
     context = f"""You are advising a parent about a baby crying episode.
 
 Context:
-- Cry reason: {category_name}
+- Cry reason: {reason_text}
+- Solution that helped: {solution_text}
 - Time recorded: {cry.recorded_at.strftime("%B %d, %Y at %I:%M %p")}
 - Parent's notes: {cry.notes if cry.notes else "None"}
 
 Provide practical, safe, evidence-based advice. Keep responses concise (3-4 sentences).
 Always prioritize safety and suggest consulting a pediatrician for concerning symptoms.
+When the parent asks for help identifying the reason or solution, you can suggest updating
+the cry record with your insights based on the conversation.
 """
 
     # Build messages for OpenAI

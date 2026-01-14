@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from openai import OpenAI
 import json
 
-from app.models import CryInstance, CryCategory
+from app.models import CryInstance
 from app.ai.embeddings import generate_embedding
 from app.vector_db import add_embedding, search_similar, update_embedding_metadata
 
@@ -28,8 +28,8 @@ async def predict_cry_reason(cry_id: int, user_id: int, db: Session) -> Optional
     2. Generate embedding using MERT
     3. Store embedding in Chroma
     4. Find similar cries (KNN search)
-    5. Retrieve historical categories and notes
-    6. Call OpenAI to predict category
+    5. Retrieve historical reasons and solutions
+    6. Call OpenAI to predict reason and solution
     7. Update database
 
     Args:
@@ -53,7 +53,7 @@ async def predict_cry_reason(cry_id: int, user_id: int, db: Session) -> Optional
             .filter(
                 CryInstance.user_id == user_id,
                 CryInstance.validation_status == True,
-                CryInstance.category_id.isnot(None),
+                CryInstance.reason.isnot(None),
             )
             .count()
         )
@@ -87,7 +87,7 @@ async def predict_cry_reason(cry_id: int, user_id: int, db: Session) -> Optional
                 cry_id=cry_id,
                 user_id=user_id,
                 embedding=embedding,
-                category_id=cry.category_id,
+                reason=cry.reason,
                 timestamp=cry.recorded_at.isoformat(),
             )
         except Exception as e:
@@ -110,22 +110,21 @@ async def predict_cry_reason(cry_id: int, user_id: int, db: Session) -> Optional
                 "message": "No similar cries found in your history",
             }
 
-        # Get category and notes for similar cries
+        # Get reason and solution for similar cries
         historical_data = []
         for similar in similar_cries:
             similar_cry_id = similar["cry_id"]
             similar_cry = db.query(CryInstance).filter(CryInstance.id == similar_cry_id).first()
 
-            if similar_cry and similar_cry.category_id:
-                category = db.query(CryCategory).filter(CryCategory.id == similar_cry.category_id).first()
-                if category:
-                    historical_data.append(
-                        {
-                            "category": category.name,
-                            "notes": similar_cry.notes or "",
-                            "similarity": f"{similar['similarity']:.2f}",
-                        }
-                    )
+            if similar_cry and similar_cry.reason:
+                historical_data.append(
+                    {
+                        "reason": similar_cry.reason,
+                        "solution": similar_cry.solution or "Not recorded",
+                        "notes": similar_cry.notes or "",
+                        "similarity": f"{similar['similarity']:.2f}",
+                    }
+                )
 
         if not historical_data:
             logger.info(f"No historical data available for user {user_id}")
@@ -134,9 +133,9 @@ async def predict_cry_reason(cry_id: int, user_id: int, db: Session) -> Optional
                 "message": "Could not retrieve historical data",
             }
 
-        # Call OpenAI to predict category
-        logger.info(f"Calling OpenAI to predict category for cry_id={cry_id}")
-        prediction = await call_openai_for_prediction(historical_data, db)
+        # Call OpenAI to predict reason and solution
+        logger.info(f"Calling OpenAI to predict reason and solution for cry_id={cry_id}")
+        prediction = await call_openai_for_prediction(historical_data)
 
         if not prediction:
             return {
@@ -145,18 +144,21 @@ async def predict_cry_reason(cry_id: int, user_id: int, db: Session) -> Optional
             }
 
         # Update cry instance with prediction
-        cry.category_id = prediction["category_id"]
-        cry.category_source = "ai"
-        cry.notes = prediction["explanation"]
+        cry.reason = prediction["reason"]
+        cry.reason_source = "ai"
+        cry.solution = prediction["solution"]
+        cry.solution_source = "ai"
+        if "notes" in prediction:
+            cry.notes = prediction["notes"]
         db.commit()
 
-        logger.info(f"Prediction complete for cry_id={cry_id}: {prediction['category']}")
+        logger.info(f"Prediction complete for cry_id={cry_id}: {prediction['reason']}")
 
         return {
             "status": "success",
-            "category": prediction["category"],
-            "category_id": prediction["category_id"],
-            "explanation": prediction["explanation"],
+            "reason": prediction["reason"],
+            "solution": prediction["solution"],
+            "notes": prediction.get("notes", ""),
             "confidence": "normal" if validated_count >= 5 else "low",
         }
 
@@ -168,43 +170,40 @@ async def predict_cry_reason(cry_id: int, user_id: int, db: Session) -> Optional
         }
 
 
-async def call_openai_for_prediction(historical_data: list, db: Session) -> Optional[dict]:
+async def call_openai_for_prediction(historical_data: list) -> Optional[dict]:
     """
-    Call OpenAI to predict cry category based on historical data.
+    Call OpenAI to predict cry reason and solution based on historical data.
 
     Args:
-        historical_data: List of similar past cries with categories and notes
-        db: Database session
+        historical_data: List of similar past cries with reasons, solutions, and notes
 
     Returns:
-        Prediction dict with category, category_id, and explanation
+        Prediction dict with reason, solution, and notes
     """
     if not client:
         logger.error("OpenAI client not initialized (API key missing)")
         return None
 
     try:
-        # Get all categories
-        categories = db.query(CryCategory).all()
-        category_list = [f"{cat.name}: {cat.description}" for cat in categories]
-
         # Build prompt
         system_prompt = """You are an expert baby cry analyzer. Based on similar past recordings,
-predict why the baby is crying now.
+predict why the baby is crying now and suggest a solution that might help.
 
-Available categories:
-{}
+Provide:
+1. A brief reason (2-5 words, e.g., "hungry", "tired", "needs diaper change")
+2. A practical solution (1 sentence, e.g., "Try feeding", "Rock gently to sleep")
+3. Optional brief notes if relevant (1 sentence)
 
-Choose the most likely category and provide a brief explanation (1-2 sentences).
-""".format("\n".join(category_list))
+Respond in JSON format with keys: "reason", "solution", "notes"
+"""
 
         user_prompt = f"""Similar past cries:
 
 """
         for i, data in enumerate(historical_data, 1):
-            user_prompt += f"{i}. Category: {data['category']}, Notes: {data['notes']}, Similarity: {data['similarity']}\n"
+            user_prompt += f"{i}. Reason: {data['reason']}, Solution: {data['solution']}, Notes: {data['notes']}, Similarity: {data['similarity']}\n"
 
-        user_prompt += "\nBased on these similar past recordings, predict the most likely category and provide a brief explanation."
+        user_prompt += "\nBased on these similar past recordings, predict the most likely reason and suggest a solution."
 
         # Call OpenAI
         response = client.chat.completions.create(
@@ -214,27 +213,18 @@ Choose the most likely category and provide a brief explanation (1-2 sentences).
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.7,
-            max_tokens=150,
+            max_tokens=200,
+            response_format={"type": "json_object"},
         )
 
-        # Parse response
+        # Parse JSON response
         content = response.choices[0].message.content.strip()
-
-        # Try to extract category from response
-        predicted_category = None
-        for cat in categories:
-            if cat.name.lower() in content.lower():
-                predicted_category = cat
-                break
-
-        if not predicted_category:
-            # Default to "other" if we can't determine category
-            predicted_category = db.query(CryCategory).filter(CryCategory.name == "other").first()
+        prediction_data = json.loads(content)
 
         return {
-            "category": predicted_category.name,
-            "category_id": predicted_category.id,
-            "explanation": content,
+            "reason": prediction_data.get("reason", "Unknown"),
+            "solution": prediction_data.get("solution", ""),
+            "notes": prediction_data.get("notes", ""),
         }
 
     except Exception as e:

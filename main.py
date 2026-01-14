@@ -10,10 +10,29 @@ from typing import Optional
 from app.routers import auth, cries, chat
 from app.dependencies import get_current_user, get_current_user_optional
 from app.models import User
+from app.utils.system_checks import check_ffmpeg_installed
 from dotenv import load_dotenv
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
+
+# Check system dependencies
+ffmpeg_installed, ffmpeg_message = check_ffmpeg_installed()
+if not ffmpeg_installed:
+    logger.warning("=" * 60)
+    logger.warning("MISSING DEPENDENCY: ffmpeg")
+    logger.warning("=" * 60)
+    logger.warning(ffmpeg_message)
+    logger.warning("=" * 60)
+    logger.warning("Audio recording features will NOT work until ffmpeg is installed!")
+    logger.warning("=" * 60)
+else:
+    logger.info(f"✓ {ffmpeg_message}")
 
 # Create FastAPI app
 app = FastAPI(
@@ -31,7 +50,6 @@ templates = Jinja2Templates(directory="templates")
 # Include routers
 app.include_router(auth.router)
 app.include_router(cries.router)
-app.include_router(cries.categories_router)
 app.include_router(chat.router)
 
 

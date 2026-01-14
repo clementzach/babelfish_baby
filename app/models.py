@@ -40,20 +40,28 @@ class CryInstance(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     audio_file_path = Column(String(500), nullable=False)
     recorded_at = Column(DateTime(timezone=True), nullable=False, index=True)
+
+    # Free-text reason for crying (e.g., "hungry", "tired", "dirty diaper")
     reason = Column(Text, nullable=True)
     reason_source = Column(
         String(10),
-        CheckConstraint("category_source IN ('user', 'ai')"),
+        CheckConstraint("reason_source IN ('user', 'ai')"),
         nullable=True,
     )
+
+    # Free-text solution that helped (e.g., "fed bottle", "rocked to sleep")
     solution = Column(Text, nullable=True)
     solution_source = Column(
         String(10),
-        CheckConstraint("category_source IN ('user', 'ai')"),
+        CheckConstraint("solution_source IN ('user', 'ai')"),
         nullable=True,
     )
+
+    # Additional notes
     notes = Column(Text, nullable=True)
-    validation_status = Column(Boolean, nullable=True, index=True)  # NULL=not reviewed, TRUE=confirmed, FALSE=rejected
+
+    # Validation status: NULL=not reviewed, TRUE=confirmed, FALSE=rejected
+    validation_status = Column(Boolean, nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships

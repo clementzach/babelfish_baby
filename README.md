@@ -31,28 +31,49 @@ BabelFish Baby helps parents understand why their baby is crying using AI and ma
 
 - Python 3.10 or higher
 - pip (Python package manager)
+- **ffmpeg** (required for audio processing)
 - OpenAI API key
 - Hugging Face API token
 
 ### Installation
 
-1. **Clone the repository**:
+1. **Install ffmpeg** (required for audio processing):
+   ```bash
+   # macOS
+   brew install ffmpeg
+
+   # Ubuntu/Debian
+   sudo apt-get update
+   sudo apt-get install ffmpeg
+
+   # Windows
+   # Download from https://ffmpeg.org/download.html
+   # Or use chocolatey: choco install ffmpeg
+   ```
+
+   Verify installation:
+   ```bash
+   ffmpeg -version
+   ffprobe -version
+   ```
+
+2. **Clone the repository**:
    ```bash
    cd babelfish_baby
    ```
 
-2. **Create a virtual environment**:
+3. **Create a virtual environment**:
    ```bash
    python3 -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
-3. **Install dependencies**:
+4. **Install dependencies**:
    ```bash
    pip install -r requirements.txt
    ```
 
-4. **Set up environment variables**:
+5. **Set up environment variables**:
    ```bash
    cp .env.example .env
    ```
@@ -64,7 +85,7 @@ BabelFish Baby helps parents understand why their baby is crying using AI and ma
    SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
    ```
 
-5. **Initialize the database**:
+6. **Initialize the database**:
    ```bash
    python scripts/init_db.py
    ```

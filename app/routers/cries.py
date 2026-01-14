@@ -3,6 +3,7 @@ Cry management endpoints.
 """
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
 from pydantic import BaseModel
@@ -12,7 +13,7 @@ import os
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import User, CryInstance, CryCategory
+from app.models import User, CryInstance
 from app.utils.helpers import relative_time, format_timestamp
 from app.utils.audio import validate_audio_file, convert_to_24khz_wav, save_uploaded_file
 from app.ai.predictions import predict_cry_reason
@@ -21,38 +22,15 @@ import tempfile
 router = APIRouter(prefix="/api/cries", tags=["cries"])
 
 
-# Also add categories endpoint (should be at module level, not in /api/cries)
-from fastapi import APIRouter as CategoryRouter
-categories_router = APIRouter(prefix="/api", tags=["categories"])
-
-
-@categories_router.get("/categories")
-async def get_categories(db: Session = Depends(get_db)):
-    """
-    Get all cry categories.
-
-    Returns:
-        List of categories
-    """
-    categories = db.query(CryCategory).all()
-    return [
-        {
-            "category_id": cat.id,
-            "name": cat.name,
-            "description": cat.description,
-        }
-        for cat in categories
-    ]
-
-
 # Response models
 class CryHistoryItem(BaseModel):
     cry_id: int
     recorded_at: str  # ISO 8601
     recorded_at_relative: str
-    category: Optional[str]
-    category_id: Optional[int]
-    category_source: Optional[str]
+    reason: Optional[str]
+    reason_source: Optional[str]
+    solution: Optional[str]
+    solution_source: Optional[str]
     notes: Optional[str]
     validation_status: Optional[bool]
     needs_labeling: bool
@@ -69,9 +47,10 @@ class CryDetailResponse(BaseModel):
     audio_file_path: str
     recorded_at: str
     recorded_at_formatted: str
-    category: Optional[str]
-    category_id: Optional[int]
-    category_source: Optional[str]
+    reason: Optional[str]
+    reason_source: Optional[str]
+    solution: Optional[str]
+    solution_source: Optional[str]
     notes: Optional[str]
     validation_status: Optional[bool]
     created_at: str
@@ -85,10 +64,11 @@ class RecordResponse(BaseModel):
     status: str
 
 
-class ValidationRequest(BaseModel):
-    validation: bool
-    category_id: Optional[int] = None
+class UpdateCryRequest(BaseModel):
+    reason: Optional[str] = None
+    solution: Optional[str] = None
     notes: Optional[str] = None
+    validation: Optional[bool] = None
 
 
 class NotesUpdateRequest(BaseModel):
@@ -219,13 +199,6 @@ async def get_cry_history(
     # Build response
     result = []
     for cry in cries:
-        # Get category name
-        category_name = None
-        if cry.category_id:
-            category = db.query(CryCategory).filter(CryCategory.id == cry.category_id).first()
-            if category:
-                category_name = category.name
-
         # Count chat messages
         from app.models import ChatConversation
         chat_count = (
@@ -234,17 +207,18 @@ async def get_cry_history(
             .scalar()
         )
 
-        # Check if needs labeling (no category assigned)
-        needs_labeling = cry.category_id is None
+        # Check if needs labeling (no reason assigned)
+        needs_labeling = cry.reason is None
 
         result.append(
             CryHistoryItem(
                 cry_id=cry.id,
                 recorded_at=cry.recorded_at.isoformat(),
                 recorded_at_relative=relative_time(cry.recorded_at),
-                category=category_name,
-                category_id=cry.category_id,
-                category_source=cry.category_source,
+                reason=cry.reason,
+                reason_source=cry.reason_source,
+                solution=cry.solution,
+                solution_source=cry.solution_source,
                 notes=cry.notes,
                 validation_status=cry.validation_status,
                 needs_labeling=needs_labeling,
@@ -290,22 +264,16 @@ async def get_cry_detail(
             detail="Access denied",
         )
 
-    # Get category name
-    category_name = None
-    if cry.category_id:
-        category = db.query(CryCategory).filter(CryCategory.id == cry.category_id).first()
-        if category:
-            category_name = category.name
-
     return CryDetailResponse(
         cry_id=cry.id,
         user_id=cry.user_id,
         audio_file_path=cry.audio_file_path,
         recorded_at=cry.recorded_at.isoformat(),
         recorded_at_formatted=format_timestamp(cry.recorded_at),
-        category=category_name,
-        category_id=cry.category_id,
-        category_source=cry.category_source,
+        reason=cry.reason,
+        reason_source=cry.reason_source,
+        solution=cry.solution,
+        solution_source=cry.solution_source,
         notes=cry.notes,
         validation_status=cry.validation_status,
         created_at=cry.created_at.isoformat(),
@@ -338,15 +306,13 @@ async def get_cry_status(
         )
 
     # Check if needs labeling
-    if cry.category_id is None:
+    if cry.reason is None:
         return {
             "status": "ready",
             "needs_labeling": True,
         }
 
     # Has prediction
-    category = db.query(CryCategory).filter(CryCategory.id == cry.category_id).first()
-
     # Get validated count for confidence
     validated_count = (
         db.query(CryInstance)
@@ -361,27 +327,27 @@ async def get_cry_status(
         "status": "ready",
         "needs_labeling": False,
         "prediction": {
-            "category": category.name if category else "unknown",
-            "category_id": cry.category_id,
+            "reason": cry.reason,
+            "solution": cry.solution,
             "notes": cry.notes,
             "confidence": "normal" if validated_count >= 5 else "low",
         },
     }
 
 
-@router.put("/{cry_id}/validate")
-async def validate_cry(
+@router.put("/{cry_id}/update")
+async def update_cry(
     cry_id: int,
-    request: ValidationRequest,
+    request: UpdateCryRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Validate or update a cry's category.
+    Update a cry's reason, solution, and/or notes.
 
     Args:
         cry_id: Cry instance ID
-        request: Validation data
+        request: Update data (reason, solution, notes, validation)
         current_user: Authenticated user
         db: Database session
 
@@ -405,47 +371,35 @@ async def validate_cry(
             detail="Access denied",
         )
 
-    if request.validation:
-        # User confirms AI prediction is correct
-        cry.validation_status = True
-    else:
-        # User corrects the prediction
-        if not request.category_id:
+    # Update fields if provided
+    if request.reason is not None:
+        cry.reason = request.reason
+        cry.reason_source = "user"
+
+    if request.solution is not None:
+        cry.solution = request.solution
+        cry.solution_source = "user"
+
+    if request.notes is not None:
+        if len(request.notes) > 500:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="category_id required when validation is false",
+                detail="Notes too long (max 500 characters)",
             )
+        cry.notes = request.notes
 
-        # Verify category exists
-        category = db.query(CryCategory).filter(CryCategory.id == request.category_id).first()
-        if not category:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Invalid category_id",
-            )
-
-        cry.category_id = request.category_id
-        cry.category_source = "user"
-        cry.validation_status = True
-
-        if request.notes:
-            cry.notes = request.notes
+    if request.validation is not None:
+        cry.validation_status = request.validation
 
     db.commit()
     db.refresh(cry)
 
-    # Get category name
-    category_name = None
-    if cry.category_id:
-        category = db.query(CryCategory).filter(CryCategory.id == cry.category_id).first()
-        if category:
-            category_name = category.name
-
     return {
         "cry_id": cry.id,
-        "category": category_name,
-        "category_id": cry.category_id,
-        "category_source": cry.category_source,
+        "reason": cry.reason,
+        "reason_source": cry.reason_source,
+        "solution": cry.solution,
+        "solution_source": cry.solution_source,
         "notes": cry.notes,
         "validation_status": cry.validation_status,
     }
@@ -501,3 +455,51 @@ async def update_notes(
         "cry_id": cry.id,
         "notes": cry.notes,
     }
+
+
+@router.get("/{cry_id}/audio")
+async def get_cry_audio(
+    cry_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Stream audio file for a cry.
+
+    Args:
+        cry_id: Cry instance ID
+        current_user: Authenticated user
+        db: Database session
+
+    Returns:
+        Audio file as streaming response
+
+    Raises:
+        HTTPException: If cry not found, belongs to different user, or audio file missing
+    """
+    cry = db.query(CryInstance).filter(CryInstance.id == cry_id).first()
+
+    if not cry:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Cry not found",
+        )
+
+    if cry.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+    # Check if audio file exists
+    if not cry.audio_file_path or not os.path.exists(cry.audio_file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Audio file not found",
+        )
+
+    return FileResponse(
+        path=cry.audio_file_path,
+        media_type="audio/wav",
+        filename=f"cry_{cry_id}.wav",
+    )

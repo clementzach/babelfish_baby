@@ -3,6 +3,7 @@ Audio processing utilities for file validation and conversion.
 """
 from fastapi import UploadFile, HTTPException, status
 from pydub import AudioSegment
+from app.utils.system_checks import check_ffmpeg_installed
 import os
 import tempfile
 
@@ -47,6 +48,16 @@ def convert_to_24khz_wav(input_path: str, output_path: str) -> None:
     Raises:
         HTTPException: If conversion fails or file is invalid
     """
+    # Check if ffmpeg is installed
+    ffmpeg_installed, ffmpeg_message = check_ffmpeg_installed()
+    if not ffmpeg_installed:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Audio processing unavailable: ffmpeg is not installed. "
+                   f"Please install ffmpeg to enable audio features. "
+                   f"See server logs for installation instructions.",
+        )
+
     try:
         # Load audio file (pydub supports many formats)
         audio = AudioSegment.from_file(input_path)
@@ -75,10 +86,28 @@ def convert_to_24khz_wav(input_path: str, output_path: str) -> None:
     except HTTPException:
         # Re-raise our own exceptions
         raise
-    except Exception as e:
+    except FileNotFoundError as e:
+        # This might happen if ffprobe/ffmpeg is missing
+        if "ffprobe" in str(e) or "ffmpeg" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Audio processing tool (ffmpeg) not found. Please install ffmpeg.",
+            )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Failed to process audio file: {str(e)}",
+            detail=f"File not found: {str(e)}",
+        )
+    except Exception as e:
+        error_msg = str(e)
+        # Check for ffmpeg-related errors
+        if "ffprobe" in error_msg or "ffmpeg" in error_msg or "No such file" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Audio processing unavailable: ffmpeg may not be installed correctly. Error: {error_msg}",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Failed to process audio file: {error_msg}",
         )
 
 

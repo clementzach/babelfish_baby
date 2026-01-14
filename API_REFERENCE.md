@@ -123,8 +123,11 @@ Cookie: session=...
   {
     "cry_id": 42,
     "recorded_at": "2026-01-10T14:30:00Z",
-    "category": "tired",
-    "category_source": "ai",
+    "recorded_at_relative": "2 hours ago",
+    "reason": "Tired",
+    "reason_source": "ai",
+    "solution": "Rocked to sleep",
+    "solution_source": "ai",
     "notes": "Evening fussiness pattern detected",
     "validation_status": null,
     "needs_labeling": false,
@@ -134,8 +137,11 @@ Cookie: session=...
   {
     "cry_id": 41,
     "recorded_at": "2026-01-10T12:15:00Z",
-    "category": "hungry",
-    "category_source": "user",
+    "recorded_at_relative": "4 hours ago",
+    "reason": "Hungry",
+    "reason_source": "user",
+    "solution": "Fed bottle",
+    "solution_source": "user",
     "notes": "2 hours after last feeding",
     "validation_status": true,
     "needs_labeling": false,
@@ -167,9 +173,11 @@ Cookie: session=...
   "user_id": 1,
   "audio_file_path": "./audio_files/user_1/20260110_143000_cry_42.wav",
   "recorded_at": "2026-01-10T14:30:00Z",
-  "category": "tired",
-  "category_id": 2,
-  "category_source": "ai",
+  "recorded_at_formatted": "January 10, 2026 at 2:30 PM",
+  "reason": "Tired",
+  "reason_source": "ai",
+  "solution": "Rocked to sleep",
+  "solution_source": "ai",
   "notes": "Evening fussiness pattern detected",
   "validation_status": null,
   "created_at": "2026-01-10T14:30:05Z"
@@ -219,9 +227,10 @@ OR if complete:
 ```json
 {
   "status": "ready",
+  "needs_labeling": false,
   "prediction": {
-    "category": "tired",
-    "category_id": 2,
+    "reason": "Tired",
+    "solution": "Try rocking to sleep",
     "notes": "Evening fussiness pattern detected",
     "confidence": "normal"
   }
@@ -242,9 +251,9 @@ OR if complete:
 
 ---
 
-### Validate Prediction
+### Update Cry Details
 ```http
-PUT /api/cries/{cry_id}/validate
+PUT /api/cries/{cry_id}/update
 Content-Type: application/json
 Cookie: session=...
 
@@ -260,12 +269,21 @@ Cookie: session=...
 }
 ```
 
-**To reject and correct:**
+**To update reason, solution, and notes:**
 ```json
 {
   "validation": false,
-  "category_id": 3,
+  "reason": "Pain or discomfort",
+  "solution": "Gave gas drops",
   "notes": "Actually was in pain, not tired"
+}
+```
+
+**All fields are optional** - only include fields you want to update:
+```json
+{
+  "reason": "Hungry",
+  "solution": "Fed bottle"
 }
 ```
 
@@ -273,11 +291,12 @@ Cookie: session=...
 ```json
 {
   "cry_id": 42,
-  "category": "pain",
-  "category_id": 3,
-  "category_source": "user",
+  "reason": "Pain or discomfort",
+  "reason_source": "user",
+  "solution": "Gave gas drops",
+  "solution_source": "user",
   "notes": "Actually was in pain, not tired",
-  "validation_status": true
+  "validation_status": false
 }
 ```
 
@@ -285,7 +304,7 @@ Cookie: session=...
 - 401: Not authenticated
 - 403: Cry belongs to different user
 - 404: Cry not found
-- 422: Invalid category_id
+- 422: Notes too long (> 500 chars)
 
 ---
 
@@ -338,8 +357,9 @@ Cookie: session=...
 ```
 
 **Context used by AI**:
-- Cry category and notes
+- Cry reason and solution
 - Time of recording
+- Parent's notes
 - Previous chat messages in this conversation
 
 **Errors**:
@@ -385,58 +405,6 @@ Cookie: session=...
 - 401: Not authenticated
 - 403: Cry belongs to different user
 - 404: Cry not found
-
----
-
-## Utility Endpoints
-
-### Get Cry Categories
-```http
-GET /api/categories
-```
-
-**Response** (200 OK):
-```json
-[
-  {
-    "category_id": 1,
-    "name": "hungry",
-    "description": "Baby needs feeding"
-  },
-  {
-    "category_id": 2,
-    "name": "tired",
-    "description": "Baby needs sleep"
-  },
-  {
-    "category_id": 3,
-    "name": "diaper",
-    "description": "Diaper needs changing"
-  },
-  {
-    "category_id": 4,
-    "name": "pain",
-    "description": "Baby is in pain or discomfort"
-  },
-  {
-    "category_id": 5,
-    "name": "comfort",
-    "description": "Baby needs comfort or attention"
-  },
-  {
-    "category_id": 6,
-    "name": "overstimulated",
-    "description": "Baby is overstimulated"
-  },
-  {
-    "category_id": 7,
-    "name": "other",
-    "description": "Other reason"
-  }
-]
-```
-
-**Use case**: Populate dropdown menus for manual labeling
 
 ---
 
@@ -513,10 +481,10 @@ curl http://localhost:8000/api/cries/1/status \
 
 #### 4. Manually Label (since first cry)
 ```bash
-curl -X PUT http://localhost:8000/api/cries/1/validate \
+curl -X PUT http://localhost:8000/api/cries/1/update \
   -H "Cookie: session=abc123..." \
   -H "Content-Type: application/json" \
-  -d '{"validation": false, "category_id": 1, "notes": "Hungry, 3 hours since last feeding"}'
+  -d '{"reason": "Hungry", "solution": "Fed bottle", "notes": "3 hours since last feeding"}'
 ```
 
 #### 5. Record 2nd and 3rd Cry (same manual labeling flow)
@@ -529,14 +497,14 @@ curl -X POST http://localhost:8000/api/cries/record \
   -F "recorded_at=2026-01-10T18:30:00Z"
 
 # Poll status...
-# {"status": "ready", "prediction": {"category": "tired", "notes": "Evening fussiness..."}}
+# {"status": "ready", "prediction": {"reason": "Tired", "solution": "Try rocking to sleep", "notes": "Evening fussiness..."}}
 ```
 
 #### 7. Validate AI Prediction
 ```bash
-curl -X PUT http://localhost:8000/api/cries/4/validate \
+curl -X PUT http://localhost:8000/api/cries/4/update \
   -H "Cookie: session=abc123..." \
-  -H "Content-Type: application/json" \
+  -H "Content-Type": application/json" \
   -d '{"validation": true}'
 ```
 
@@ -593,15 +561,6 @@ These are **not API endpoints**, but HTML pages served by FastAPI:
 }
 ```
 
-### CryCategory
-```typescript
-{
-  category_id: number
-  name: string
-  description: string
-}
-```
-
 ### CryInstance
 ```typescript
 {
@@ -609,9 +568,10 @@ These are **not API endpoints**, but HTML pages served by FastAPI:
   user_id: number
   audio_file_path: string
   recorded_at: string (ISO 8601)
-  category: string | null
-  category_id: number | null
-  category_source: "user" | "ai" | null
+  reason: string | null  // Free-text reason (e.g., "Hungry", "Tired", "Dirty diaper")
+  reason_source: "user" | "ai" | null
+  solution: string | null  // Free-text solution (e.g., "Fed bottle", "Rocked to sleep")
+  solution_source: "user" | "ai" | null
   notes: string | null
   validation_status: boolean | null  // null=not reviewed, true=confirmed, false=rejected
   created_at: string (ISO 8601)
@@ -791,9 +751,10 @@ Gets cries 41-60.
 Not implemented in MVP, but possible enhancements:
 
 ```
-GET /api/cries/history?category=tired&sort=recorded_at:desc
+GET /api/cries/history?reason=tired&sort=recorded_at:desc
 GET /api/cries/history?date_from=2026-01-01&date_to=2026-01-31
 GET /api/cries/history?validated=true
+GET /api/cries/history?needs_labeling=true
 ```
 
 ---

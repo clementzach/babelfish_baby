@@ -44,11 +44,31 @@
             <input type="hidden" id="labelCryId">
 
             <div class="form-group">
-                <label for="categorySelect">Why was baby crying?</label>
-                <select id="categorySelect" required>
-                    <option value="">Select a reason...</option>
-                    <!-- Will be populated by JavaScript -->
-                </select>
+                <label for="reasonInput">Why was baby crying?</label>
+                <input type="text" id="reasonInput" list="reasonSuggestions" placeholder="e.g., hungry, tired, dirty diaper..." required>
+                <datalist id="reasonSuggestions">
+                    <option value="Hungry">
+                    <option value="Tired">
+                    <option value="Dirty diaper">
+                    <option value="Pain or discomfort">
+                    <option value="Needs comfort">
+                    <option value="Overstimulated">
+                    <option value="Other">
+                </datalist>
+            </div>
+
+            <div class="form-group">
+                <label for="solutionInput">What helped? (optional)</label>
+                <input type="text" id="solutionInput" list="solutionSuggestions" placeholder="e.g., fed bottle, rocked to sleep...">
+                <datalist id="solutionSuggestions">
+                    <option value="Fed bottle">
+                    <option value="Breastfed">
+                    <option value="Changed diaper">
+                    <option value="Rocked to sleep">
+                    <option value="Cuddled">
+                    <option value="Changed environment">
+                    <option value="Gave pacifier">
+                </datalist>
             </div>
 
             <div class="form-group">
@@ -67,12 +87,10 @@
 
 {% block scripts %}
 <script>
-let categories = [];
 let cries = [];
 
 // Load data on page load
 document.addEventListener('DOMContentLoaded', async () => {
-    await loadCategories();
     await loadCries();
 });
 
@@ -85,25 +103,6 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
         showNotification('Logout failed', 'error');
     }
 });
-
-// Load categories
-async function loadCategories() {
-    try {
-        const response = await fetch('/api/categories');
-        categories = await response.json();
-
-        // Populate category select
-        const select = document.getElementById('categorySelect');
-        categories.forEach(cat => {
-            const option = document.createElement('option');
-            option.value = cat.category_id;
-            option.textContent = `${cat.name.charAt(0).toUpperCase() + cat.name.slice(1)} - ${cat.description}`;
-            select.appendChild(option);
-        });
-    } catch (error) {
-        showNotification('Failed to load categories', 'error');
-    }
-}
 
 // Load cry history
 async function loadCries() {
@@ -155,7 +154,7 @@ function createCryItem(cry) {
     div.className = 'cry-item';
     div.dataset.cryId = cry.cry_id;
 
-    // Header with time and category
+    // Header with time and reason
     const header = document.createElement('div');
     header.className = 'cry-header';
 
@@ -165,14 +164,22 @@ function createCryItem(cry) {
     time.title = cry.recorded_at;
     header.appendChild(time);
 
-    if (cry.category) {
-        const categoryBadge = document.createElement('span');
-        categoryBadge.className = `cry-category category-${cry.category}`;
-        categoryBadge.textContent = cry.category.charAt(0).toUpperCase() + cry.category.slice(1);
-        header.appendChild(categoryBadge);
+    if (cry.reason) {
+        const reasonBadge = document.createElement('span');
+        reasonBadge.className = 'cry-reason';
+        reasonBadge.textContent = cry.reason;
+        header.appendChild(reasonBadge);
     }
 
     div.appendChild(header);
+
+    // Solution (if provided)
+    if (cry.solution) {
+        const solutionDiv = document.createElement('div');
+        solutionDiv.className = 'cry-solution';
+        solutionDiv.textContent = `✓ ${cry.solution}`;
+        div.appendChild(solutionDiv);
+    }
 
     // Notes
     if (cry.notes) {
@@ -180,6 +187,23 @@ function createCryItem(cry) {
         notes.className = 'cry-notes';
         notes.textContent = cry.notes;
         div.appendChild(notes);
+    }
+
+    // Audio player (if audio exists)
+    if (cry.has_audio) {
+        const audioContainer = document.createElement('div');
+        audioContainer.className = 'audio-player-container';
+        audioContainer.style.marginTop = '10px';
+
+        const audio = document.createElement('audio');
+        audio.controls = true;
+        audio.preload = 'none';
+        audio.src = `/api/cries/${cry.cry_id}/audio`;
+        audio.style.width = '100%';
+        audio.style.maxWidth = '400px';
+
+        audioContainer.appendChild(audio);
+        div.appendChild(audioContainer);
     }
 
     // Status indicators
@@ -190,7 +214,7 @@ function createCryItem(cry) {
         badge.style.padding = '8px';
         badge.textContent = '⚠️ Needs Labeling';
         div.appendChild(badge);
-    } else if (cry.validation_status === null && cry.category_source === 'ai') {
+    } else if (cry.validation_status === null && cry.reason_source === 'ai') {
         const badge = document.createElement('div');
         badge.style.marginTop = '10px';
         badge.style.padding = '8px';
@@ -210,7 +234,7 @@ function createCryItem(cry) {
         labelBtn.textContent = 'Label';
         labelBtn.onclick = () => openLabelModal(cry);
         actions.appendChild(labelBtn);
-    } else if (cry.validation_status === null && cry.category_source === 'ai') {
+    } else if (cry.validation_status === null && cry.reason_source === 'ai') {
         const correctBtn = document.createElement('button');
         correctBtn.className = 'btn-small btn-validate';
         correctBtn.textContent = '✓ Correct';
@@ -226,7 +250,7 @@ function createCryItem(cry) {
 
     const editBtn = document.createElement('button');
     editBtn.className = 'btn-small btn-edit';
-    editBtn.textContent = 'Edit Notes';
+    editBtn.textContent = 'Edit';
     editBtn.onclick = () => openEditModal(cry);
     actions.appendChild(editBtn);
 
@@ -246,25 +270,31 @@ function createCryItem(cry) {
 function openLabelModal(cry, isCorrection = false) {
     document.getElementById('modalTitle').textContent = isCorrection ? 'Correct Prediction' : 'Label Cry';
     document.getElementById('labelCryId').value = cry.cry_id;
-    document.getElementById('categorySelect').value = cry.category_id || '';
+    document.getElementById('reasonInput').value = cry.reason || '';
+    document.getElementById('solutionInput').value = cry.solution || '';
     document.getElementById('notesInput').value = cry.notes || '';
+    document.getElementById('reasonInput').disabled = false;
+    document.getElementById('solutionInput').disabled = false;
     document.getElementById('labelModal').style.display = 'flex';
 }
 
-// Open edit notes modal
+// Open edit modal
 function openEditModal(cry) {
-    document.getElementById('modalTitle').textContent = 'Edit Notes';
+    document.getElementById('modalTitle').textContent = 'Edit Cry Details';
     document.getElementById('labelCryId').value = cry.cry_id;
-    document.getElementById('categorySelect').value = cry.category_id || '';
-    document.getElementById('categorySelect').disabled = true;
+    document.getElementById('reasonInput').value = cry.reason || '';
+    document.getElementById('solutionInput').value = cry.solution || '';
     document.getElementById('notesInput').value = cry.notes || '';
+    document.getElementById('reasonInput').disabled = false;
+    document.getElementById('solutionInput').disabled = false;
     document.getElementById('labelModal').style.display = 'flex';
 }
 
 // Close modal
 document.getElementById('cancelBtn').addEventListener('click', () => {
     document.getElementById('labelModal').style.display = 'none';
-    document.getElementById('categorySelect').disabled = false;
+    document.getElementById('reasonInput').disabled = false;
+    document.getElementById('solutionInput').disabled = false;
 });
 
 // Submit label form
@@ -272,33 +302,26 @@ document.getElementById('labelForm').addEventListener('submit', async (e) => {
     e.preventDefault();
 
     const cryId = document.getElementById('labelCryId').value;
-    const categoryId = parseInt(document.getElementById('categorySelect').value);
+    const reason = document.getElementById('reasonInput').value;
+    const solution = document.getElementById('solutionInput').value;
     const notes = document.getElementById('notesInput').value;
-    const isEditOnly = document.getElementById('categorySelect').disabled;
 
     try {
-        if (isEditOnly) {
-            // Just update notes
-            await fetch(`/api/cries/${cryId}/notes`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ notes })
-            });
-        } else {
-            // Validate/label
-            await fetch(`/api/cries/${cryId}/validate`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    validation: false,
-                    category_id: categoryId,
-                    notes: notes
-                })
-            });
-        }
+        // Update cry with reason, solution, and notes
+        await fetch(`/api/cries/${cryId}/update`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                reason: reason || null,
+                solution: solution || null,
+                notes: notes || null,
+                validation: false
+            })
+        });
 
         document.getElementById('labelModal').style.display = 'none';
-        document.getElementById('categorySelect').disabled = false;
+        document.getElementById('reasonInput').disabled = false;
+        document.getElementById('solutionInput').disabled = false;
         showNotification('Saved successfully', 'success');
         await loadCries();
     } catch (error) {
@@ -309,7 +332,7 @@ document.getElementById('labelForm').addEventListener('submit', async (e) => {
 // Validate cry as correct
 async function validateCry(cryId, isCorrect) {
     try {
-        await fetch(`/api/cries/${cryId}/validate`, {
+        await fetch(`/api/cries/${cryId}/update`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ validation: true })
@@ -357,7 +380,7 @@ async function validateCry(cryId, isCorrect) {
     margin-top: 20px;
 }
 
-select, textarea {
+input[type="text"], textarea {
     width: 100%;
     padding: 10px;
     border: 1px solid #ddd;
@@ -365,9 +388,44 @@ select, textarea {
     font-size: 1em;
 }
 
-select:focus, textarea:focus {
+input[type="text"]:focus, textarea:focus {
     outline: none;
     border-color: #4A90E2;
+}
+
+.cry-reason {
+    background-color: #4A90E2;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.9em;
+    font-weight: 500;
+}
+
+.cry-solution {
+    color: #4CAF50;
+    font-size: 0.9em;
+    margin-top: 5px;
+    font-weight: 500;
+}
+
+.audio-player-container {
+    margin: 10px 0;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+}
+
+.audio-player-container audio {
+    width: 100%;
+    max-width: 400px;
+    height: 40px;
+    outline: none;
+}
+
+.audio-player-container audio::-webkit-media-controls-panel {
+    background-color: #ffffff;
+    border-radius: 4px;
 }
 </style>
 {% endblock %}

@@ -73,7 +73,7 @@ def add_embedding(
     cry_id: int,
     user_id: int,
     embedding: List[float],
-    category_id: Optional[int] = None,
+    reason: Optional[str] = None,
     timestamp: Optional[str] = None,
 ) -> None:
     """
@@ -83,7 +83,7 @@ def add_embedding(
         cry_id: Cry instance ID
         user_id: User ID (for filtering)
         embedding: 768-dimensional embedding vector from MERT
-        category_id: Optional category ID
+        reason: Optional cry reason (free text)
         timestamp: Optional ISO 8601 timestamp
     """
     collection = get_collection()
@@ -96,7 +96,7 @@ def add_embedding(
                 {
                     "cry_id": cry_id,
                     "user_id": user_id,
-                    "category_id": category_id if category_id else 0,
+                    "has_reason": 1 if reason else 0,
                     "timestamp": timestamp if timestamp else "",
                 }
             ],
@@ -120,7 +120,7 @@ def search_similar(
         user_id: User ID to filter by
         embedding: Query embedding vector
         k: Number of nearest neighbors to return
-        filter_validated: Only return validated cries (category_id > 0)
+        filter_validated: Only return validated cries (has reason assigned)
 
     Returns:
         List of similar cry metadata with distances
@@ -131,8 +131,8 @@ def search_similar(
         # Build where clause
         where = {"user_id": user_id}
         if filter_validated:
-            # Only get cries that have been labeled (category_id > 0)
-            where["category_id"] = {"$gt": 0}
+            # Only get cries that have been labeled (has_reason > 0)
+            where["has_reason"] = {"$gt": 0}
 
         # Query collection
         results = collection.query(
@@ -164,14 +164,14 @@ def search_similar(
 
 def update_embedding_metadata(
     cry_id: int,
-    category_id: Optional[int] = None,
+    has_reason: Optional[int] = None,
 ) -> None:
     """
     Update metadata for an existing embedding.
 
     Args:
         cry_id: Cry instance ID
-        category_id: New category ID
+        has_reason: Whether the cry has a reason assigned (0 or 1)
     """
     collection = get_collection()
 
@@ -185,8 +185,8 @@ def update_embedding_metadata(
 
         # Update metadata
         metadata = existing["metadatas"][0]
-        if category_id is not None:
-            metadata["category_id"] = category_id
+        if has_reason is not None:
+            metadata["has_reason"] = has_reason
 
         collection.update(
             ids=[f"cry_{cry_id}"],
