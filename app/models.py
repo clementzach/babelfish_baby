@@ -31,19 +31,6 @@ class User(Base):
     cry_instances = relationship("CryInstance", back_populates="user", cascade="all, delete-orphan")
 
 
-class CryCategory(Base):
-    """Predefined cry categories."""
-
-    __tablename__ = "cry_categories"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(50), unique=True, nullable=False)
-    description = Column(Text, nullable=True)
-
-    # Relationships
-    cry_instances = relationship("CryInstance", back_populates="category")
-
-
 class CryInstance(Base):
     """Individual cry recording and analysis."""
 
@@ -53,8 +40,14 @@ class CryInstance(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     audio_file_path = Column(String(500), nullable=False)
     recorded_at = Column(DateTime(timezone=True), nullable=False, index=True)
-    category_id = Column(Integer, ForeignKey("cry_categories.id"), nullable=True)
-    category_source = Column(
+    reason = Column(Text, nullable=True)
+    reason_source = Column(
+        String(10),
+        CheckConstraint("category_source IN ('user', 'ai')"),
+        nullable=True,
+    )
+    solution = Column(Text, nullable=True)
+    solution_source = Column(
         String(10),
         CheckConstraint("category_source IN ('user', 'ai')"),
         nullable=True,
@@ -65,7 +58,6 @@ class CryInstance(Base):
 
     # Relationships
     user = relationship("User", back_populates="cry_instances")
-    category = relationship("CryCategory", back_populates="cry_instances")
     chat_conversations = relationship("ChatConversation", back_populates="cry_instance", cascade="all, delete-orphan")
 
 

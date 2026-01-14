@@ -86,7 +86,7 @@ Always prioritize safety and suggest consulting a pediatrician for concerning sy
     try:
         # Call OpenAI
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4.1-mini",
             messages=messages,
             temperature=0.7,
             max_tokens=200,
