@@ -1,138 +1,97 @@
 """
-Hugging Face MERT model integration for generating audio embeddings.
+Whisper model integration for generating audio embeddings.
 """
-import requests
 import os
 import logging
 from typing import List
-import base64
+import torch
+from transformers import WhisperProcessor, WhisperModel
+import librosa
 
 logger = logging.getLogger(__name__)
 
-# Hugging Face configuration
-HF_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
-MODEL_ID = "m-a-p/MERT-v1-95M"
-API_URL = f"https://api-inference.huggingface.co/models/{MODEL_ID}"
+# Load model and processor once at module level
+MODEL_NAME = "openai/whisper-tiny"
+processor = None
+model = None
 
-EMBEDDING_DIM = 768  # MERT-v1-95M output dimension
+# Whisper tiny encoder output dimension
+EMBEDDING_DIM = 384  # Whisper tiny encoder hidden size
 
 
-def generate_embedding(audio_file_path: str, max_retries: int = 3) -> List[float]:
+def _load_model():
+    """Load Whisper model and processor if not already loaded."""
+    global processor, model
+    if processor is None or model is None:
+        logger.info(f"Loading Whisper model: {MODEL_NAME}")
+        processor = WhisperProcessor.from_pretrained(MODEL_NAME)
+        model = WhisperModel.from_pretrained(MODEL_NAME)
+        model.eval()  # Set to evaluation mode
+        logger.info("Whisper model loaded successfully")
+
+
+def generate_embedding(audio_file_path: str) -> List[float]:
     """
-    Generate 768-dimensional embedding from audio file using MERT-v1-95M.
+    Generate embedding from audio file using Whisper Tiny encoder.
 
     Args:
-        audio_file_path: Path to 24kHz WAV audio file
-        max_retries: Maximum number of retry attempts
+        audio_file_path: Path to audio file (WAV, MP3, etc.)
 
     Returns:
-        768-dimensional embedding vector
+        384-dimensional embedding vector from Whisper encoder
 
     Raises:
         Exception: If embedding generation fails
     """
-    if not HF_API_KEY:
-        raise ValueError("HUGGINGFACE_API_KEY not set in environment variables")
-
     if not os.path.exists(audio_file_path):
         raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
 
-    headers = {
-        "Authorization": f"Bearer {HF_API_KEY}",
-    }
+    try:
+        # Load model if needed
+        _load_model()
 
-    # Read audio file
-    with open(audio_file_path, "rb") as f:
-        audio_data = f.read()
+        # Load audio file (Whisper expects 16kHz)
+        logger.info(f"Loading audio file: {audio_file_path}")
+        audio, sr = librosa.load(audio_file_path, sr=16000)
 
-    # Try to generate embedding with retries
-    for attempt in range(max_retries):
-        try:
-            logger.info(f"Generating embedding for {audio_file_path} (attempt {attempt + 1}/{max_retries})")
+        # Process audio
+        logger.info("Processing audio with Whisper processor")
+        inputs = processor(audio, sampling_rate=16000, return_tensors="pt")
 
-            response = requests.post(
-                API_URL,
-                headers=headers,
-                data=audio_data,
-                timeout=60,
+        # Generate embeddings using encoder
+        logger.info("Generating embeddings from Whisper encoder")
+        with torch.no_grad():
+            # Get encoder outputs (hidden states)
+            encoder_outputs = model.encoder(
+                inputs.input_features,
+                return_dict=True
             )
 
-            if response.status_code == 200:
-                result = response.json()
+            # Use the mean of the last hidden state as the embedding
+            # Shape: (batch_size, sequence_length, hidden_size)
+            last_hidden_state = encoder_outputs.last_hidden_state
 
-                # MERT model returns embeddings in different formats depending on the endpoint
-                # Handle common response formats
-                if isinstance(result, list):
-                    # Direct embedding list
-                    if len(result) == EMBEDDING_DIM:
-                        logger.info(f"Successfully generated {EMBEDDING_DIM}-dimensional embedding")
-                        return result
-                    elif len(result) > 0 and isinstance(result[0], list):
-                        # List of embeddings (take first one)
-                        embedding = result[0]
-                        if len(embedding) == EMBEDDING_DIM:
-                            logger.info(f"Successfully generated {EMBEDDING_DIM}-dimensional embedding")
-                            return embedding
+            # Average pool over the sequence dimension to get fixed-size embedding
+            # Result shape: (batch_size, hidden_size) -> (384,)
+            embedding = torch.mean(last_hidden_state, dim=1).squeeze()
 
-                elif isinstance(result, dict):
-                    # Check for common keys
-                    if "embedding" in result:
-                        embedding = result["embedding"]
-                        if len(embedding) == EMBEDDING_DIM:
-                            logger.info(f"Successfully generated {EMBEDDING_DIM}-dimensional embedding")
-                            return embedding
+            # Convert to list
+            embedding_list = embedding.cpu().numpy().tolist()
 
-                    elif "embeddings" in result:
-                        embeddings = result["embeddings"]
-                        if isinstance(embeddings, list) and len(embeddings) > 0:
-                            embedding = embeddings[0] if isinstance(embeddings[0], list) else embeddings
-                            if len(embedding) == EMBEDDING_DIM:
-                                logger.info(f"Successfully generated {EMBEDDING_DIM}-dimensional embedding")
-                                return embedding
+        logger.info(f"Successfully generated {len(embedding_list)}-dimensional embedding")
+        return embedding_list
 
-                # If we got here, response format was unexpected
-                logger.error(f"Unexpected response format from Hugging Face API: {result}")
-                raise ValueError(f"Unexpected embedding format. Got: {type(result)}")
-
-            elif response.status_code == 503:
-                # Model is loading, retry
-                logger.warning(f"Model is loading... (attempt {attempt + 1}/{max_retries})")
-                if attempt < max_retries - 1:
-                    import time
-                    time.sleep(10)  # Wait 10 seconds before retry
-                    continue
-                else:
-                    raise Exception("Model is still loading after multiple retries")
-
-            else:
-                # Other error
-                error_msg = response.text
-                logger.error(f"Hugging Face API error ({response.status_code}): {error_msg}")
-                raise Exception(f"Hugging Face API error: {error_msg}")
-
-        except requests.exceptions.Timeout:
-            logger.warning(f"Request timeout (attempt {attempt + 1}/{max_retries})")
-            if attempt < max_retries - 1:
-                continue
-            else:
-                raise Exception("Request timed out after multiple retries")
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Request failed: {e}")
-            if attempt < max_retries - 1:
-                continue
-            else:
-                raise
-
-    raise Exception("Failed to generate embedding after all retries")
+    except Exception as e:
+        logger.error(f"Failed to generate embedding: {e}")
+        raise Exception(f"Embedding generation failed: {str(e)}")
 
 
 def generate_dummy_embedding() -> List[float]:
     """
-    Generate a dummy embedding for testing (when Hugging Face is unavailable).
+    Generate a dummy embedding for testing.
 
     Returns:
-        Random 768-dimensional vector
+        Random 384-dimensional vector matching Whisper embedding dimension
     """
     import random
     random.seed(42)

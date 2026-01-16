@@ -14,7 +14,7 @@
 
     <!-- Banner for new users -->
     <div id="newUserBanner" class="banner" style="display: none;">
-        <strong>👋 Welcome!</strong> Please label your first few recordings to help us learn your baby's cry patterns.
+        <strong>👋 Welcome!</strong> <span id="bannerMessage"></span>
     </div>
 
     <!-- Cry list -->
@@ -88,6 +88,8 @@
 {% block scripts %}
 <script>
 let cries = [];
+let validatedCount = 0;
+const REQUIRED_VALIDATIONS = 5;
 
 // Load data on page load
 document.addEventListener('DOMContentLoaded', async () => {
@@ -131,9 +133,22 @@ async function loadCries() {
 
 // Check if user needs to see banner
 function checkNewUserBanner() {
-    const validatedCount = cries.filter(c => c.validation_status === true).length;
-    if (validatedCount < 3) {
-        document.getElementById('newUserBanner').style.display = 'block';
+    validatedCount = cries.filter(c => c.validation_status === true).length;
+
+    if (validatedCount < REQUIRED_VALIDATIONS) {
+        const remaining = REQUIRED_VALIDATIONS - validatedCount;
+        const bannerEl = document.getElementById('newUserBanner');
+        const messageEl = document.getElementById('bannerMessage');
+
+        if (remaining === REQUIRED_VALIDATIONS) {
+            messageEl.textContent = `Please label ${REQUIRED_VALIDATIONS} recordings to activate AI predictions.`;
+        } else if (remaining === 1) {
+            messageEl.textContent = `Label 1 more recording to activate AI predictions!`;
+        } else {
+            messageEl.textContent = `Label ${remaining} more recordings to activate AI predictions.`;
+        }
+
+        bannerEl.style.display = 'block';
     }
 }
 
@@ -164,20 +179,42 @@ function createCryItem(cry) {
     time.title = cry.recorded_at;
     header.appendChild(time);
 
-    if (cry.reason) {
+    // Determine what to show for reason
+    if (cry.reason && cry.validation_status === true) {
+        // User-validated reason
         const reasonBadge = document.createElement('span');
         reasonBadge.className = 'cry-reason';
         reasonBadge.textContent = cry.reason;
+        header.appendChild(reasonBadge);
+    } else if (cry.ai_reason) {
+        // AI prediction available
+        const reasonBadge = document.createElement('span');
+        reasonBadge.className = 'cry-reason ai-prediction';
+        reasonBadge.textContent = `🤖 ${cry.ai_reason}`;
+        reasonBadge.title = 'AI Prediction - Please validate';
+        header.appendChild(reasonBadge);
+    } else if (validatedCount >= REQUIRED_VALIDATIONS && !cry.reason) {
+        // AI enabled but prediction pending
+        const reasonBadge = document.createElement('span');
+        reasonBadge.className = 'cry-reason ai-pending';
+        reasonBadge.textContent = `🤖 AI suggestion pending`;
+        reasonBadge.title = 'AI is analyzing this recording...';
         header.appendChild(reasonBadge);
     }
 
     div.appendChild(header);
 
     // Solution (if provided)
-    if (cry.solution) {
+    if (cry.solution && cry.validation_status === true) {
         const solutionDiv = document.createElement('div');
         solutionDiv.className = 'cry-solution';
         solutionDiv.textContent = `✓ ${cry.solution}`;
+        div.appendChild(solutionDiv);
+    } else if (cry.ai_solution) {
+        const solutionDiv = document.createElement('div');
+        solutionDiv.className = 'cry-solution ai-prediction';
+        solutionDiv.textContent = `🤖 ${cry.ai_solution}`;
+        solutionDiv.title = 'AI Prediction - Please validate';
         div.appendChild(solutionDiv);
     }
 
@@ -206,46 +243,44 @@ function createCryItem(cry) {
         div.appendChild(audioContainer);
     }
 
-    // Status indicators
-    if (cry.needs_labeling) {
+    // Status indicators and Actions
+    const actions = document.createElement('div');
+    actions.className = 'cry-actions';
+
+    // Check if has AI prediction awaiting validation
+    if (cry.ai_reason && cry.ai_solution && cry.validation_status === null) {
+        // Add validate/reject buttons
+        const correctBtn = document.createElement('button');
+        correctBtn.className = 'btn-small btn-validate';
+        correctBtn.textContent = '✓ Accept';
+        correctBtn.onclick = () => validateAIPrediction(cry.cry_id);
+        actions.appendChild(correctBtn);
+
+        const wrongBtn = document.createElement('button');
+        wrongBtn.className = 'btn-small btn-reject';
+        wrongBtn.textContent = '✗ Edit';
+        wrongBtn.onclick = () => openLabelModal(cry, true);
+        actions.appendChild(wrongBtn);
+    }
+    // Check if needs initial labeling (only show if user has < 5 validated)
+    else if (!cry.reason && !cry.ai_reason && validatedCount < REQUIRED_VALIDATIONS) {
         const badge = document.createElement('div');
         badge.className = 'banner';
         badge.style.marginTop = '10px';
         badge.style.padding = '8px';
         badge.textContent = '⚠️ Needs Labeling';
         div.appendChild(badge);
-    } else if (cry.validation_status === null && cry.reason_source === 'ai') {
-        const badge = document.createElement('div');
-        badge.style.marginTop = '10px';
-        badge.style.padding = '8px';
-        badge.style.backgroundColor = '#E3F2FD';
-        badge.style.borderRadius = '5px';
-        badge.textContent = '🤖 AI Prediction - Please Validate';
-        div.appendChild(badge);
-    }
 
-    // Actions
-    const actions = document.createElement('div');
-    actions.className = 'cry-actions';
-
-    if (cry.needs_labeling) {
         const labelBtn = document.createElement('button');
         labelBtn.className = 'btn-small btn-validate';
         labelBtn.textContent = 'Label';
         labelBtn.onclick = () => openLabelModal(cry);
         actions.appendChild(labelBtn);
-    } else if (cry.validation_status === null && cry.reason_source === 'ai') {
-        const correctBtn = document.createElement('button');
-        correctBtn.className = 'btn-small btn-validate';
-        correctBtn.textContent = '✓ Correct';
-        correctBtn.onclick = () => validateCry(cry.cry_id, true);
-        actions.appendChild(correctBtn);
-
-        const wrongBtn = document.createElement('button');
-        wrongBtn.className = 'btn-small btn-reject';
-        wrongBtn.textContent = '✗ Wrong';
-        wrongBtn.onclick = () => openLabelModal(cry, true);
-        actions.appendChild(wrongBtn);
+    }
+    // If AI is pending (user has ≥5 validated but no AI prediction yet)
+    else if (!cry.reason && !cry.ai_reason && validatedCount >= REQUIRED_VALIDATIONS) {
+        // No action buttons needed - AI is processing
+        // The "AI suggestion pending" badge is already shown in the header
     }
 
     const editBtn = document.createElement('button');
@@ -344,6 +379,22 @@ async function validateCry(cryId, isCorrect) {
         showNotification('Failed to validate', 'error');
     }
 }
+
+// Validate AI prediction (copies AI values to actual values)
+async function validateAIPrediction(cryId) {
+    try {
+        await fetch(`/api/cries/${cryId}/update`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ validation: true })
+        });
+
+        showNotification('AI prediction accepted!', 'success');
+        await loadCries();
+    } catch (error) {
+        showNotification('Failed to validate AI prediction', 'error');
+    }
+}
 </script>
 
 <style>
@@ -402,11 +453,33 @@ input[type="text"]:focus, textarea:focus {
     font-weight: 500;
 }
 
+.cry-reason.ai-prediction {
+    background-color: #9C27B0;
+    border: 2px dashed #7B1FA2;
+}
+
+.cry-reason.ai-pending {
+    background-color: #FF9800;
+    color: white;
+    font-style: italic;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
 .cry-solution {
     color: #4CAF50;
     font-size: 0.9em;
     margin-top: 5px;
     font-weight: 500;
+}
+
+.cry-solution.ai-prediction {
+    color: #9C27B0;
+    font-style: italic;
 }
 
 .audio-player-container {

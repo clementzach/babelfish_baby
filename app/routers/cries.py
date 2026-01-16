@@ -17,6 +17,7 @@ from app.models import User, CryInstance
 from app.utils.helpers import relative_time, format_timestamp
 from app.utils.audio import validate_audio_file, convert_to_24khz_wav, save_uploaded_file
 from app.ai.predictions import predict_cry_reason
+from app.vector_db import update_embedding_metadata
 import tempfile
 
 router = APIRouter(prefix="/api/cries", tags=["cries"])
@@ -27,6 +28,8 @@ class CryHistoryItem(BaseModel):
     cry_id: int
     recorded_at: str  # ISO 8601
     recorded_at_relative: str
+    ai_reason: Optional[str]
+    ai_solution: Optional[str]
     reason: Optional[str]
     reason_source: Optional[str]
     solution: Optional[str]
@@ -47,6 +50,8 @@ class CryDetailResponse(BaseModel):
     audio_file_path: str
     recorded_at: str
     recorded_at_formatted: str
+    ai_reason: Optional[str]
+    ai_solution: Optional[str]
     reason: Optional[str]
     reason_source: Optional[str]
     solution: Optional[str]
@@ -207,14 +212,16 @@ async def get_cry_history(
             .scalar()
         )
 
-        # Check if needs labeling (no reason assigned)
-        needs_labeling = cry.reason is None
+        # Check if needs labeling (no validated reason - either needs initial label or has AI prediction awaiting validation)
+        needs_labeling = cry.reason is None or (cry.ai_reason is not None and cry.validation_status is None)
 
         result.append(
             CryHistoryItem(
                 cry_id=cry.id,
                 recorded_at=cry.recorded_at.isoformat(),
                 recorded_at_relative=relative_time(cry.recorded_at),
+                ai_reason=cry.ai_reason,
+                ai_solution=cry.ai_solution,
                 reason=cry.reason,
                 reason_source=cry.reason_source,
                 solution=cry.solution,
@@ -270,6 +277,8 @@ async def get_cry_detail(
         audio_file_path=cry.audio_file_path,
         recorded_at=cry.recorded_at.isoformat(),
         recorded_at_formatted=format_timestamp(cry.recorded_at),
+        ai_reason=cry.ai_reason,
+        ai_solution=cry.ai_solution,
         reason=cry.reason,
         reason_source=cry.reason_source,
         solution=cry.solution,
@@ -305,33 +314,40 @@ async def get_cry_status(
             detail="Access denied",
         )
 
-    # Check if needs labeling
-    if cry.reason is None:
+    # Check if has AI prediction awaiting validation
+    if cry.ai_reason and cry.ai_solution:
+        validated_count = (
+            db.query(CryInstance)
+            .filter(
+                CryInstance.user_id == current_user.id,
+                CryInstance.validation_status == True,
+            )
+            .count()
+        )
+
         return {
             "status": "ready",
-            "needs_labeling": True,
+            "needs_labeling": False,
+            "prediction": {
+                "reason": cry.ai_reason,
+                "solution": cry.ai_solution,
+                "notes": cry.notes,
+                "confidence": "normal" if validated_count >= 5 else "low",
+            },
         }
 
-    # Has prediction
-    # Get validated count for confidence
-    validated_count = (
-        db.query(CryInstance)
-        .filter(
-            CryInstance.user_id == current_user.id,
-            CryInstance.validation_status == True,
-        )
-        .count()
-    )
+    # Check if already validated
+    if cry.reason and cry.validation_status == True:
+        return {
+            "status": "ready",
+            "needs_labeling": False,
+            "validated": True,
+        }
 
+    # Needs manual labeling
     return {
         "status": "ready",
-        "needs_labeling": False,
-        "prediction": {
-            "reason": cry.reason,
-            "solution": cry.solution,
-            "notes": cry.notes,
-            "confidence": "normal" if validated_count >= 5 else "low",
-        },
+        "needs_labeling": True,
     }
 
 
@@ -371,15 +387,41 @@ async def update_cry(
             detail="Access denied",
         )
 
-    # Update fields if provided
-    if request.reason is not None:
-        cry.reason = request.reason
-        cry.reason_source = "user"
+    # Handle validation of AI predictions
+    if request.validation == True and cry.ai_reason and cry.ai_solution:
+        # User is validating AI prediction - copy AI values to actual values
+        cry.reason = cry.ai_reason
+        cry.reason_source = "ai"
+        cry.solution = cry.ai_solution
+        cry.solution_source = "ai"
+        cry.validation_status = True
+        # Clear AI predictions after validation
+        cry.ai_reason = None
+        cry.ai_solution = None
 
-    if request.solution is not None:
-        cry.solution = request.solution
-        cry.solution_source = "user"
+    # Handle user manually entering/editing reason and solution
+    elif request.reason is not None or request.solution is not None:
+        if request.reason is not None:
+            cry.reason = request.reason
+            cry.reason_source = "user"
+        if request.solution is not None:
+            cry.solution = request.solution
+            cry.solution_source = "user"
+        # Auto-validate user-entered data
+        cry.validation_status = True
+        # Clear AI predictions since user is providing their own
+        cry.ai_reason = None
+        cry.ai_solution = None
 
+    # Handle just setting validation status (e.g., rejecting AI prediction)
+    elif request.validation is not None:
+        cry.validation_status = request.validation
+        if request.validation == False:
+            # User rejected AI prediction - clear it
+            cry.ai_reason = None
+            cry.ai_solution = None
+
+    # Update notes if provided
     if request.notes is not None:
         if len(request.notes) > 500:
             raise HTTPException(
@@ -388,11 +430,17 @@ async def update_cry(
             )
         cry.notes = request.notes
 
-    if request.validation is not None:
-        cry.validation_status = request.validation
-
     db.commit()
     db.refresh(cry)
+
+    # Update Chroma metadata if cry now has a reason
+    if cry.reason is not None:
+        try:
+            update_embedding_metadata(cry_id=cry.id, has_reason=1)
+        except Exception as e:
+            # Log but don't fail the request if Chroma update fails
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to update Chroma metadata for cry_id={cry.id}: {e}")
 
     return {
         "cry_id": cry.id,

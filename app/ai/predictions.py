@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 # OpenAI configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+NUM_SIMILAR_CRIES = 3
+NUM_CRIES_FOR_PREDICTIONS = 5
 
 
 async def predict_cry_reason(cry_id: int, user_id: int, db: Session) -> Optional[dict]:
@@ -60,16 +62,7 @@ async def predict_cry_reason(cry_id: int, user_id: int, db: Session) -> Optional
 
         logger.info(f"User {user_id} has {validated_count} validated recordings")
 
-        # Need at least 3 validated recordings for predictions
-        if validated_count < 3:
-            logger.info(f"Not enough validated data for user {user_id}, skipping AI prediction")
-            return {
-                "status": "needs_manual_labeling",
-                "message": "Please label more recordings before AI predictions can begin",
-                "validated_count": validated_count,
-            }
-
-        # Generate embedding
+        # Generate embedding (do this for ALL cries, not just after NUM_CRIES_FOR_PREDICTIONS validations)
         logger.info(f"Generating embedding for cry_id={cry_id}")
         try:
             embedding = generate_embedding(cry.audio_file_path)
@@ -94,12 +87,21 @@ async def predict_cry_reason(cry_id: int, user_id: int, db: Session) -> Optional
             logger.error(f"Failed to store embedding in Chroma: {e}")
             # Continue anyway, we can still try to search
 
+        # Need at least NUM_CRIES_FOR_PREDICTIONS validated recordings for predictions
+        if validated_count < NUM_CRIES_FOR_PREDICTIONS:
+            logger.info(f"Not enough validated data for user {user_id}, skipping AI prediction")
+            return {
+                "status": "needs_manual_labeling",
+                "message": "Please label more recordings before AI predictions can begin",
+                "validated_count": validated_count,
+            }
+
         # Search for similar cries
         logger.info(f"Searching for similar cries for user_id={user_id}")
         similar_cries = search_similar(
             user_id=user_id,
             embedding=embedding,
-            k=5,
+            k=NUM_SIMILAR_CRIES,
             filter_validated=True,
         )
 
@@ -143,12 +145,10 @@ async def predict_cry_reason(cry_id: int, user_id: int, db: Session) -> Optional
                 "message": "Failed to generate prediction",
             }
 
-        # Update cry instance with prediction
-        cry.reason = prediction["reason"]
-        cry.reason_source = "ai"
-        cry.solution = prediction["solution"]
-        cry.solution_source = "ai"
-        if "notes" in prediction:
+        # Update cry instance with AI prediction (user will validate later)
+        cry.ai_reason = prediction["reason"]
+        cry.ai_solution = prediction["solution"]
+        if "notes" in prediction and not cry.notes:
             cry.notes = prediction["notes"]
         db.commit()
 
@@ -159,7 +159,7 @@ async def predict_cry_reason(cry_id: int, user_id: int, db: Session) -> Optional
             "reason": prediction["reason"],
             "solution": prediction["solution"],
             "notes": prediction.get("notes", ""),
-            "confidence": "normal" if validated_count >= 5 else "low",
+            "confidence": "normal" if validated_count >= NUM_CRIES_FOR_PREDICTIONS else "low",
         }
 
     except Exception as e:
@@ -205,26 +205,34 @@ Respond in JSON format with keys: "reason", "solution", "notes"
 
         user_prompt += "\nBased on these similar past recordings, predict the most likely reason and suggest a solution."
 
-        # Call OpenAI
+
+        logger.info(f"Calling model with user prompt: " + user_prompt)
+
+        # Call OpenAI (using gpt-4.1-mini for cost efficiency and better performance)
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4.1-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.7,
             max_tokens=200,
-            response_format={"type": "json_object"},
         )
 
         # Parse JSON response
         content = response.choices[0].message.content.strip()
+
+        # Handle potential markdown code blocks in response
+        if content.startswith("```"):
+            # Extract JSON from markdown code block
+            lines = content.split("\n")
+            content = "\n".join(lines[1:-1]) if len(lines) > 2 else content
+
         prediction_data = json.loads(content)
 
         return {
             "reason": prediction_data.get("reason", "Unknown"),
             "solution": prediction_data.get("solution", ""),
-            "notes": prediction_data.get("notes", ""),
         }
 
     except Exception as e:

@@ -2,7 +2,6 @@
 Chroma vector database client for storing and querying cry embeddings.
 """
 import chromadb
-from chromadb.config import Settings
 import os
 from typing import List, Dict, Optional
 import logging
@@ -29,12 +28,7 @@ def get_chroma_client():
 
     if _chroma_client is None:
         try:
-            _chroma_client = chromadb.Client(
-                Settings(
-                    chroma_db_impl="duckdb+parquet",
-                    persist_directory=CHROMA_PERSIST_DIR,
-                )
-            )
+            _chroma_client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
             logger.info(f"Initialized Chroma client with persistence at {CHROMA_PERSIST_DIR}")
         except Exception as e:
             logger.error(f"Failed to initialize Chroma client: {e}")
@@ -82,7 +76,7 @@ def add_embedding(
     Args:
         cry_id: Cry instance ID
         user_id: User ID (for filtering)
-        embedding: 768-dimensional embedding vector from MERT
+        embedding: 384-dimensional embedding vector from Whisper
         reason: Optional cry reason (free text)
         timestamp: Optional ISO 8601 timestamp
     """
@@ -129,10 +123,16 @@ def search_similar(
 
     try:
         # Build where clause
-        where = {"user_id": user_id}
         if filter_validated:
-            # Only get cries that have been labeled (has_reason > 0)
-            where["has_reason"] = {"$gt": 0}
+            # Combine conditions using $and operator for chromadb 0.4.22
+            where = {
+                "$and": [
+                    {"user_id": user_id},
+                    {"has_reason": {"$gt": 0}}
+                ]
+            }
+        else:
+            where = {"user_id": user_id}
 
         # Query collection
         results = collection.query(

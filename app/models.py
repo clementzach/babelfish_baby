@@ -41,7 +41,11 @@ class CryInstance(Base):
     audio_file_path = Column(String(500), nullable=False)
     recorded_at = Column(DateTime(timezone=True), nullable=False, index=True)
 
-    # Free-text reason for crying (e.g., "hungry", "tired", "dirty diaper")
+    # AI-predicted reason and solution (not yet validated by user)
+    ai_reason = Column(Text, nullable=True)
+    ai_solution = Column(Text, nullable=True)
+
+    # User-validated or user-entered reason for crying (e.g., "hungry", "tired", "dirty diaper")
     reason = Column(Text, nullable=True)
     reason_source = Column(
         String(10),
@@ -49,7 +53,7 @@ class CryInstance(Base):
         nullable=True,
     )
 
-    # Free-text solution that helped (e.g., "fed bottle", "rocked to sleep")
+    # User-validated or user-entered solution that helped (e.g., "fed bottle", "rocked to sleep")
     solution = Column(Text, nullable=True)
     solution_source = Column(
         String(10),
