@@ -103,7 +103,22 @@
                 window.location.href = '/history';
             } else {
                 const error = await response.json();
-                alert(error.detail || 'Registration failed');
+                // Handle Pydantic validation errors
+                let errorMessage = 'Registration failed';
+                if (error.detail) {
+                    if (Array.isArray(error.detail)) {
+                        // Pydantic validation error format
+                        const usernameError = error.detail.find(e => e.loc && e.loc.includes('username'));
+                        if (usernameError && usernameError.type === 'string_pattern_mismatch') {
+                            errorMessage = 'Username must be 3-50 characters and contain only letters, numbers, and underscores';
+                        } else {
+                            errorMessage = error.detail.map(e => e.msg).join(', ');
+                        }
+                    } else if (typeof error.detail === 'string') {
+                        errorMessage = error.detail;
+                    }
+                }
+                alert(errorMessage);
             }
         } catch (error) {
             alert('Registration failed: ' + error.message);
