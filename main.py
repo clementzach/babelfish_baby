@@ -13,6 +13,7 @@ from app.models import User
 from app.utils.system_checks import check_ffmpeg_installed
 from dotenv import load_dotenv
 import logging
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +40,7 @@ app = FastAPI(
     title="BabelFish Baby",
     description="AI-powered baby cry detection and analysis",
     version="1.0.0",
+    root_path=os.getenv("ROOT_PATH", ""),  # Support for reverse proxy path prefix
 )
 
 
