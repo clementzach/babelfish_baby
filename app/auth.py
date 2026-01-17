@@ -50,13 +50,22 @@ def create_session(response: Response, user_id: int):
     """
     # For MVP, we'll use a simple approach with signed cookies
     # In production, consider using a proper session management library
+
+    # Get root path for reverse proxy support
+    root_path = os.getenv("ROOT_PATH", "")
+    cookie_path = root_path + "/" if root_path else "/"
+
+    # Use secure cookies in production (when HTTPS is available)
+    is_production = os.getenv("ENVIRONMENT", "development") == "production"
+
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=str(user_id),
         httponly=True,
         max_age=30 * 24 * 60 * 60,  # 30 days
         samesite="lax",
-        # secure=True,  # Enable in production with HTTPS
+        secure=is_production,  # Enable in production with HTTPS
+        path=cookie_path,  # Set path for reverse proxy
     )
 
 
@@ -67,4 +76,8 @@ def destroy_session(response: Response):
     Args:
         response: FastAPI Response object
     """
-    response.delete_cookie(key=SESSION_COOKIE_NAME)
+    # Get root path for reverse proxy support
+    root_path = os.getenv("ROOT_PATH", "")
+    cookie_path = root_path + "/" if root_path else "/"
+
+    response.delete_cookie(key=SESSION_COOKIE_NAME, path=cookie_path)

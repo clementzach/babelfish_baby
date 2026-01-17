@@ -6,6 +6,8 @@ from fastapi import FastAPI, Request, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from typing import Optional
 from app.routers import auth, cries, chat
 from app.dependencies import get_current_user, get_current_user_optional
@@ -36,12 +38,34 @@ else:
     logger.info(f"✓ {ffmpeg_message}")
 
 # Create FastAPI app
+# Get root path for reverse proxy support
+root_path = os.getenv("ROOT_PATH", "")
+
 app = FastAPI(
     title="BabelFish Baby",
     description="AI-powered baby cry detection and analysis",
     version="1.0.0",
-    root_path=os.getenv("ROOT_PATH", ""),  # Support for reverse proxy path prefix
+    root_path=root_path,
+    # Explicitly set docs URLs to work with reverse proxy
+    docs_url="/docs" if root_path else "/docs",
+    openapi_url="/openapi.json" if root_path else "/openapi.json",
 )
+
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """Middleware to log all incoming requests for debugging."""
+    async def dispatch(self, request: Request, call_next):
+        logger.info(f"Incoming request: {request.method} {request.url.path} (full: {request.url})")
+        logger.info(f"Headers: {dict(request.headers)}")
+        response = await call_next(request)
+        logger.info(f"Response status: {response.status_code}")
+        return response
+
+
+# Add middleware for debugging
+if os.getenv("DEBUG_REQUESTS", "false").lower() == "true":
+    app.add_middleware(RequestLoggingMiddleware)
+    logger.info("✓ Request logging middleware enabled")
 
 
 @app.on_event("startup")
@@ -51,6 +75,9 @@ async def verify_database_tables():
     from app.database import engine
 
     logger.info("Verifying database tables...")
+    logger.info(f"Root path: {app.root_path}")
+    logger.info(f"Docs URL: {app.docs_url}")
+    logger.info(f"OpenAPI URL: {app.openapi_url}")
 
     # Expected tables
     required_tables = {
@@ -161,4 +188,8 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Only used for local development (python main.py)
+    # For production, use: uvicorn main:app --host 127.0.0.1 --port 8001 --proxy-headers
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run(app, host=host, port=port)

@@ -7,7 +7,7 @@
     <div class="dashboard-header">
         <h1>🍼 BabelFish Baby</h1>
         <div class="header-actions">
-            <a href="/record" class="btn-record">📹 Record New Cry</a>
+            <a href="javascript:void(0)" onclick="window.location.href = window.ROOT_PATH + '/record'" class="btn-record">📹 Record New Cry</a>
             <button id="logoutBtn" class="btn-logout">Logout</button>
         </div>
     </div>
@@ -99,8 +99,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 // Logout handler
 document.getElementById('logoutBtn').addEventListener('click', async () => {
     try {
-        await fetch('/auth/logout', { method: 'POST' });
-        window.location.href = '/';
+        await fetch(window.ROOT_PATH + '/auth/logout', { method: 'POST' });
+        window.location.href = window.ROOT_PATH + '/';
     } catch (error) {
         showNotification('Logout failed', 'error');
     }
@@ -113,7 +113,7 @@ async function loadCries() {
     document.getElementById('cryList').style.display = 'none';
 
     try {
-        const response = await fetch('/api/cries/history');
+        const response = await fetch(window.ROOT_PATH + '/api/cries/history');
         cries = await response.json();
 
         document.getElementById('loadingState').style.display = 'none';
@@ -235,7 +235,7 @@ function createCryItem(cry) {
         const audio = document.createElement('audio');
         audio.controls = true;
         audio.preload = 'none';
-        audio.src = `/api/cries/${cry.cry_id}/audio`;
+        audio.src = `${window.ROOT_PATH}/api/cries/${cry.cry_id}/audio`;
         audio.style.width = '100%';
         audio.style.maxWidth = '400px';
 
@@ -250,7 +250,7 @@ function createCryItem(cry) {
         photoContainer.style.marginTop = '10px';
 
         const img = document.createElement('img');
-        img.src = `/api/cries/${cry.cry_id}/photo`;
+        img.src = `${window.ROOT_PATH}/api/cries/${cry.cry_id}/photo`;
         img.alt = 'Baby photo';
         img.className = 'photo-thumbnail';
         img.style.maxWidth = '150px';
@@ -260,7 +260,7 @@ function createCryItem(cry) {
         img.style.cursor = 'pointer';
         img.onclick = () => {
             // Open full size in new tab
-            window.open(`/api/cries/${cry.cry_id}/photo`, '_blank');
+            window.open(`${window.ROOT_PATH}/api/cries/${cry.cry_id}/photo`, '_blank');
         };
 
         photoContainer.appendChild(img);
@@ -317,7 +317,7 @@ function createCryItem(cry) {
     const adviceBtn = document.createElement('button');
     adviceBtn.className = 'btn-small btn-advice';
     adviceBtn.textContent = '💬 Get Advice';
-    adviceBtn.onclick = () => window.location.href = `/chat/${cry.cry_id}`;
+    adviceBtn.onclick = () => window.location.href = `${window.ROOT_PATH}/chat/${cry.cry_id}`;
     actions.appendChild(adviceBtn);
 
     div.appendChild(actions);
@@ -367,7 +367,7 @@ document.getElementById('labelForm').addEventListener('submit', async (e) => {
 
     try {
         // Update cry with reason, solution, and notes
-        await fetch(`/api/cries/${cryId}/update`, {
+        await fetch(`${window.ROOT_PATH}/api/cries/${cryId}/update`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -391,7 +391,7 @@ document.getElementById('labelForm').addEventListener('submit', async (e) => {
 // Validate cry as correct
 async function validateCry(cryId, isCorrect) {
     try {
-        await fetch(`/api/cries/${cryId}/update`, {
+        await fetch(`${window.ROOT_PATH}/api/cries/${cryId}/update`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ validation: true })
@@ -407,7 +407,7 @@ async function validateCry(cryId, isCorrect) {
 // Validate AI prediction (copies AI values to actual values)
 async function validateAIPrediction(cryId) {
     try {
-        await fetch(`/api/cries/${cryId}/update`, {
+        await fetch(`${window.ROOT_PATH}/api/cries/${cryId}/update`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ validation: true })
