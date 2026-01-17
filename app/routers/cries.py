@@ -20,6 +20,9 @@ from app.utils.photo import validate_photo_file, save_uploaded_photo
 from app.ai.predictions import predict_cry_reason
 from app.vector_db import update_embedding_metadata
 import tempfile
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/cries", tags=["cries"])
 
@@ -108,12 +111,26 @@ async def record_cry(
     Raises:
         HTTPException: If file is invalid or processing fails
     """
+    logger.info(f"[Record] Starting upload for user {current_user.id}")
+    logger.info(f"[Record] Audio file: {audio_file.filename}, size: {audio_file.size if hasattr(audio_file, 'size') else 'unknown'}")
+    logger.info(f"[Record] Photo file: {photo_file.filename if photo_file and photo_file.filename else 'None'}")
+
     # Validate audio file
+    logger.info("[Record] Validating audio file...")
     validate_audio_file(audio_file)
+    logger.info("[Record] Audio file validated successfully")
 
     # Validate photo file if provided
     if photo_file and photo_file.filename:
-        validate_photo_file(photo_file)
+        logger.info(f"[Record] Validating photo file: {photo_file.filename}")
+        try:
+            validate_photo_file(photo_file)
+            logger.info("[Record] Photo file validated successfully")
+        except Exception as e:
+            logger.error(f"[Record] Photo validation failed: {e}")
+            raise
+    else:
+        logger.info("[Record] No photo file provided")
 
     # Parse timestamp
     try:
@@ -163,24 +180,40 @@ async def record_cry(
 
         # Handle photo if provided
         if photo_file and photo_file.filename:
+            logger.info(f"[Record] Processing photo for cry {cry.id}")
+            logger.info(f"[Record] Photo filename: {photo_file.filename}")
+
             # Create photo directory
             photo_dir = os.getenv("PHOTO_FILES_DIR", "./photo_files")
             user_photo_dir = os.path.join(photo_dir, f"user_{current_user.id}")
+            logger.info(f"[Record] Photo directory: {user_photo_dir}")
             os.makedirs(user_photo_dir, exist_ok=True)
+            logger.info(f"[Record] Photo directory created/verified")
 
             # Determine photo extension
             photo_ext = os.path.splitext(photo_file.filename)[1].lower()
             if not photo_ext:
+                logger.warning("[Record] No extension found, defaulting to .jpg")
                 photo_ext = ".jpg"  # Default to jpg
+            logger.info(f"[Record] Photo extension: {photo_ext}")
 
             # Save photo
             photo_filename = f"photo_{cry.id}{photo_ext}"
             photo_path = os.path.join(user_photo_dir, photo_filename)
+            logger.info(f"[Record] Saving photo to: {photo_path}")
 
-            await save_uploaded_photo(photo_file, photo_path)
+            try:
+                await save_uploaded_photo(photo_file, photo_path)
+                logger.info(f"[Record] Photo saved successfully")
+            except Exception as e:
+                logger.error(f"[Record] Failed to save photo: {e}")
+                raise
 
             # Update database with photo path
             cry.photo_file_path = photo_path
+            logger.info(f"[Record] Updated database with photo path")
+        else:
+            logger.info(f"[Record] No photo to process for cry {cry.id}")
 
         db.commit()
 

@@ -5,6 +5,9 @@ import os
 from fastapi import HTTPException, status, UploadFile
 from PIL import Image
 import io
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Allowed photo formats
 ALLOWED_PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
@@ -29,12 +32,20 @@ def validate_photo_file(photo_file: UploadFile) -> None:
     Raises:
         HTTPException: If file is invalid
     """
+    logger.info(f"[Photo Validation] Starting validation")
+    logger.info(f"[Photo Validation] Filename: {photo_file.filename if photo_file else 'None'}")
+    logger.info(f"[Photo Validation] Content-Type: {photo_file.content_type if photo_file else 'None'}")
+
     if not photo_file:
+        logger.info("[Photo Validation] No photo file provided (optional)")
         return  # Photo is optional
 
     # Check file extension
     file_ext = os.path.splitext(photo_file.filename)[1].lower()
+    logger.info(f"[Photo Validation] Extension: {file_ext}")
+
     if file_ext not in ALLOWED_PHOTO_EXTENSIONS:
+        logger.error(f"[Photo Validation] Invalid extension: {file_ext}, allowed: {ALLOWED_PHOTO_EXTENSIONS}")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Invalid photo format. Allowed: {', '.join(ALLOWED_PHOTO_EXTENSIONS)}",
@@ -42,10 +53,13 @@ def validate_photo_file(photo_file: UploadFile) -> None:
 
     # Check MIME type
     if photo_file.content_type not in ALLOWED_PHOTO_MIMETYPES:
+        logger.error(f"[Photo Validation] Invalid MIME type: {photo_file.content_type}, allowed: {ALLOWED_PHOTO_MIMETYPES}")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Invalid photo MIME type. Allowed: {', '.join(ALLOWED_PHOTO_MIMETYPES)}",
         )
+
+    logger.info("[Photo Validation] Validation passed")
 
 
 async def save_uploaded_photo(photo_file: UploadFile, output_path: str) -> None:
@@ -59,29 +73,51 @@ async def save_uploaded_photo(photo_file: UploadFile, output_path: str) -> None:
     Raises:
         HTTPException: If save fails or file is too large
     """
+    logger.info(f"[Photo Save] Starting save to {output_path}")
+
     # Read file content
+    logger.info("[Photo Save] Reading file content...")
     content = await photo_file.read()
+    content_size = len(content)
+    logger.info(f"[Photo Save] Read {content_size} bytes ({content_size / 1024 / 1024:.2f} MB)")
 
     # Check file size
-    if len(content) > MAX_PHOTO_FILE_SIZE_BYTES:
+    if content_size > MAX_PHOTO_FILE_SIZE_BYTES:
+        logger.error(f"[Photo Save] File too large: {content_size} bytes (max: {MAX_PHOTO_FILE_SIZE_BYTES})")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Photo file too large. Maximum size: {MAX_PHOTO_FILE_SIZE_MB}MB",
         )
 
     # Verify it's a valid image
+    logger.info("[Photo Save] Verifying image integrity...")
     try:
         image = Image.open(io.BytesIO(content))
         image.verify()  # Verify it's a valid image
-    except Exception:
+        logger.info(f"[Photo Save] Image verified: {image.format}, size: {image.size}")
+    except Exception as e:
+        logger.error(f"[Photo Save] Image verification failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Invalid or corrupted image file",
         )
 
     # Save to disk
-    with open(output_path, "wb") as f:
-        f.write(content)
+    logger.info(f"[Photo Save] Writing to disk: {output_path}")
+    try:
+        with open(output_path, "wb") as f:
+            f.write(content)
+        logger.info(f"[Photo Save] Successfully saved to disk")
+
+        # Verify file was written
+        if os.path.exists(output_path):
+            file_size = os.path.getsize(output_path)
+            logger.info(f"[Photo Save] File verified on disk: {file_size} bytes")
+        else:
+            logger.error(f"[Photo Save] File not found after write: {output_path}")
+    except Exception as e:
+        logger.error(f"[Photo Save] Failed to write file: {e}")
+        raise
 
 
 def get_photo_base64(photo_path: str) -> str:

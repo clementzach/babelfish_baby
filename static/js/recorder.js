@@ -165,6 +165,13 @@ async function handleRecordingComplete() {
 
 function handlePhotoSelect(event) {
     const file = event.target.files[0];
+    console.log('[Photo] File selected:', file ? {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        sizeInMB: (file.size / 1024 / 1024).toFixed(2) + ' MB'
+    } : 'No file');
+
     if (!file) {
         photoPreview.style.display = 'none';
         return;
@@ -173,6 +180,7 @@ function handlePhotoSelect(event) {
     // Validate file type
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
     if (!allowedTypes.includes(file.type)) {
+        console.error('[Photo] Invalid file type:', file.type);
         showNotification('Please select a valid image file (JPEG, PNG, or WebP)', 'error');
         photoInput.value = '';
         return;
@@ -181,16 +189,20 @@ function handlePhotoSelect(event) {
     // Validate file size (10MB max)
     const maxSize = 10 * 1024 * 1024;
     if (file.size > maxSize) {
+        console.error('[Photo] File too large:', file.size, 'bytes (max: 10MB)');
         showNotification('Photo file is too large (max 10MB)', 'error');
         photoInput.value = '';
         return;
     }
+
+    console.log('[Photo] Validation passed, showing preview');
 
     // Show preview
     const reader = new FileReader();
     reader.onload = (e) => {
         photoPreviewImage.src = e.target.result;
         photoPreview.style.display = 'block';
+        console.log('[Photo] Preview displayed');
     };
     reader.readAsDataURL(file);
 }
@@ -217,6 +229,13 @@ async function handleUpload() {
 }
 
 async function uploadRecording(audioBlob) {
+    console.log('[Upload] Starting upload process');
+    console.log('[Upload] Audio blob:', {
+        size: audioBlob.size,
+        type: audioBlob.type,
+        sizeInMB: (audioBlob.size / 1024 / 1024).toFixed(2) + ' MB'
+    });
+
     // Create form data
     const formData = new FormData();
 
@@ -224,28 +243,57 @@ async function uploadRecording(audioBlob) {
     const filename = `recording_${Date.now()}.webm`;
     const file = new File([audioBlob], filename, { type: audioBlob.type });
     formData.append('audio_file', file);
+    console.log('[Upload] Added audio file:', filename);
 
     // Add photo if selected
     if (photoInput.files && photoInput.files[0]) {
-        formData.append('photo_file', photoInput.files[0]);
+        const photoFile = photoInput.files[0];
+        console.log('[Upload] Adding photo:', {
+            name: photoFile.name,
+            type: photoFile.type,
+            size: photoFile.size,
+            sizeInMB: (photoFile.size / 1024 / 1024).toFixed(2) + ' MB'
+        });
+        formData.append('photo_file', photoFile);
+    } else {
+        console.log('[Upload] No photo selected');
     }
 
     // Add timestamp
     const now = new Date().toISOString();
     formData.append('recorded_at', now);
+    console.log('[Upload] Added timestamp:', now);
+
+    // Log FormData contents
+    console.log('[Upload] FormData entries:');
+    for (let pair of formData.entries()) {
+        console.log(`  ${pair[0]}:`, pair[1] instanceof File ?
+            `File(${pair[1].name}, ${pair[1].size} bytes)` :
+            pair[1]
+        );
+    }
 
     // Upload
+    console.log('[Upload] Sending request to /api/cries/record');
     const response = await apiFetch('/api/cries/record', {
         method: 'POST',
         body: formData
     });
 
+    console.log('[Upload] Response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+    });
+
     if (!response.ok) {
         const error = await response.json();
+        console.error('[Upload] Upload failed:', error);
         throw new Error(error.detail || 'Upload failed');
     }
 
     const result = await response.json();
+    console.log('[Upload] Upload successful:', result);
 
     // Show success and redirect
     showNotification('Recording saved successfully!', 'success');
