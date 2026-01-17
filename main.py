@@ -41,6 +41,46 @@ app = FastAPI(
     version="1.0.0",
 )
 
+
+@app.on_event("startup")
+async def verify_database_tables():
+    """Verify all required database tables exist on startup."""
+    from sqlalchemy import inspect
+    from app.database import engine
+
+    logger.info("Verifying database tables...")
+
+    # Expected tables
+    required_tables = {
+        "users",
+        "cry_instances",
+        "chat_conversations",
+        "cry_embeddings_raw",
+        "user_embedding_stats",
+    }
+
+    # Get actual tables
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+
+    # Check for missing tables
+    missing_tables = required_tables - existing_tables
+
+    if missing_tables:
+        error_msg = (
+            f"Database initialization error: Missing tables: {', '.join(sorted(missing_tables))}\n"
+            f"Please run: python scripts/init_db.py"
+        )
+        logger.error("=" * 60)
+        logger.error("DATABASE ERROR")
+        logger.error("=" * 60)
+        logger.error(error_msg)
+        logger.error("=" * 60)
+        raise RuntimeError(error_msg)
+
+    logger.info(f"✓ All {len(required_tables)} required database tables verified")
+
+
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
