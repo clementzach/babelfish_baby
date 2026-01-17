@@ -235,7 +235,7 @@ async function uploadRecording(audioBlob) {
     formData.append('recorded_at', now);
 
     // Upload
-    const response = await fetch(window.ROOT_PATH + '/api/cries/record', {
+    const response = await apiFetch('/api/cries/record', {
         method: 'POST',
         body: formData
     });
@@ -251,7 +251,7 @@ async function uploadRecording(audioBlob) {
     showNotification('Recording saved successfully!', 'success');
 
     setTimeout(() => {
-        window.location.href = window.ROOT_PATH + '/history';
+        navigate('/history');
     }, 1500);
 }
 

@@ -19,7 +19,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 // Load cry details
 async function loadCryDetails() {
     try {
-        const response = await fetch(`${window.ROOT_PATH}/api/cries/${cryId}`);
+        const response = await apiFetch(`/api/cries/${cryId}`);
         if (!response.ok) throw new Error('Failed to load cry details');
 
         cryDetails = await response.json();
@@ -30,7 +30,7 @@ async function loadCryDetails() {
         // Check if photo exists
         const photoHtml = cryDetails.photo_file_path ? `
             <div style="margin-top: 15px;">
-                <img src="${window.ROOT_PATH}/api/cries/${cryId}/photo" alt="Baby photo" style="max-width: 300px; max-height: 300px; border-radius: 8px; border: 2px solid #ddd; cursor: pointer;" onclick="window.open('${window.ROOT_PATH}/api/cries/${cryId}/photo', '_blank')">
+                <img src="${url(`/api/cries/${cryId}/photo`)}" alt="Baby photo" style="max-width: 300px; max-height: 300px; border-radius: 8px; border: 2px solid #ddd; cursor: pointer;" onclick="window.open('${url(`/api/cries/${cryId}/photo`)}', '_blank')">
             </div>
         ` : '';
 
@@ -66,7 +66,7 @@ async function loadCryDetails() {
 // Load chat history
 async function loadChatHistory() {
     try {
-        const response = await fetch(`${window.ROOT_PATH}/api/chat/${cryId}/history`);
+        const response = await apiFetch(`/api/chat/${cryId}/history`);
         if (!response.ok) throw new Error('Failed to load chat history');
 
         const messages = await response.json();
@@ -122,7 +122,7 @@ document.getElementById('chatForm').addEventListener('submit', async (e) => {
     document.getElementById('typingIndicator').style.display = 'flex';
 
     try {
-        const response = await fetch(`${window.ROOT_PATH}/api/chat/${cryId}/message`, {
+        const response = await apiFetch(`/api/chat/${cryId}/message`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

@@ -7,7 +7,7 @@
     <div class="dashboard-header">
         <h1>🍼 BabelFish Baby</h1>
         <div class="header-actions">
-            <a href="javascript:void(0)" onclick="window.location.href = window.ROOT_PATH + '/record'" class="btn-record">📹 Record New Cry</a>
+            <a href="javascript:void(0)" onclick="navigate('/record')" class="btn-record">📹 Record New Cry</a>
             <button id="logoutBtn" class="btn-logout">Logout</button>
         </div>
     </div>
@@ -24,9 +24,8 @@
 
     <!-- Empty state -->
     <div id="emptyState" class="empty-state" style="display: none;">
-        <h2>No recordings yet</h2>
-        <p>Click "Record New Cry" to get started!</p>
-        <a href="/record" class="btn-record" style="margin-top: 20px; display: inline-block;">📹 Record New Cry</a>
+        <h2>No recordings uploaded yet</h2>
+        <p>Click "📹 Record New Cry" in the top right corner to get started!</p>
     </div>
 
     <!-- Loading state -->
@@ -99,8 +98,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 // Logout handler
 document.getElementById('logoutBtn').addEventListener('click', async () => {
     try {
-        await fetch(window.ROOT_PATH + '/auth/logout', { method: 'POST' });
-        window.location.href = window.ROOT_PATH + '/';
+        await apiFetch('/auth/logout', { method: 'POST' });
+        navigate('/');
     } catch (error) {
         showNotification('Logout failed', 'error');
     }
@@ -113,7 +112,7 @@ async function loadCries() {
     document.getElementById('cryList').style.display = 'none';
 
     try {
-        const response = await fetch(window.ROOT_PATH + '/api/cries/history');
+        const response = await apiFetch('/api/cries/history');
         cries = await response.json();
 
         document.getElementById('loadingState').style.display = 'none';
@@ -235,7 +234,7 @@ function createCryItem(cry) {
         const audio = document.createElement('audio');
         audio.controls = true;
         audio.preload = 'none';
-        audio.src = `${window.ROOT_PATH}/api/cries/${cry.cry_id}/audio`;
+        audio.src = url(`/api/cries/${cry.cry_id}/audio`);
         audio.style.width = '100%';
         audio.style.maxWidth = '400px';
 
@@ -250,7 +249,7 @@ function createCryItem(cry) {
         photoContainer.style.marginTop = '10px';
 
         const img = document.createElement('img');
-        img.src = `${window.ROOT_PATH}/api/cries/${cry.cry_id}/photo`;
+        img.src = url(`/api/cries/${cry.cry_id}/photo`);
         img.alt = 'Baby photo';
         img.className = 'photo-thumbnail';
         img.style.maxWidth = '150px';
@@ -260,7 +259,7 @@ function createCryItem(cry) {
         img.style.cursor = 'pointer';
         img.onclick = () => {
             // Open full size in new tab
-            window.open(`${window.ROOT_PATH}/api/cries/${cry.cry_id}/photo`, '_blank');
+            window.open(url(`/api/cries/${cry.cry_id}/photo`), '_blank');
         };
 
         photoContainer.appendChild(img);
@@ -317,7 +316,7 @@ function createCryItem(cry) {
     const adviceBtn = document.createElement('button');
     adviceBtn.className = 'btn-small btn-advice';
     adviceBtn.textContent = '💬 Get Advice';
-    adviceBtn.onclick = () => window.location.href = `${window.ROOT_PATH}/chat/${cry.cry_id}`;
+    adviceBtn.onclick = () => navigate(`/chat/${cry.cry_id}`);
     actions.appendChild(adviceBtn);
 
     div.appendChild(actions);
@@ -367,7 +366,7 @@ document.getElementById('labelForm').addEventListener('submit', async (e) => {
 
     try {
         // Update cry with reason, solution, and notes
-        await fetch(`${window.ROOT_PATH}/api/cries/${cryId}/update`, {
+        await apiFetch(`/api/cries/${cryId}/update`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -391,7 +390,7 @@ document.getElementById('labelForm').addEventListener('submit', async (e) => {
 // Validate cry as correct
 async function validateCry(cryId, isCorrect) {
     try {
-        await fetch(`${window.ROOT_PATH}/api/cries/${cryId}/update`, {
+        await apiFetch(`/api/cries/${cryId}/update`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ validation: true })
@@ -407,7 +406,7 @@ async function validateCry(cryId, isCorrect) {
 // Validate AI prediction (copies AI values to actual values)
 async function validateAIPrediction(cryId) {
     try {
-        await fetch(`${window.ROOT_PATH}/api/cries/${cryId}/update`, {
+        await apiFetch(`/api/cries/${cryId}/update`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ validation: true })

@@ -131,7 +131,9 @@ async def root(
     Root endpoint - redirect to history if logged in, otherwise show login page.
     """
     if current_user:
-        return RedirectResponse(url="/history", status_code=302)
+        # Use url_for to generate proper URL with root_path
+        history_url = request.url_for('history_page')
+        return RedirectResponse(url=str(history_url), status_code=302)
 
     return templates.TemplateResponse("login.html", {"request": request})
 
@@ -183,6 +185,58 @@ async def chat_page(
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy"}
+
+
+@app.get("/debug")
+async def debug_info(request: Request):
+    """Debug endpoint to check URL generation."""
+    from fastapi.responses import HTMLResponse
+
+    static_css = str(request.url_for('static', path='/css/style.css'))
+    static_js = str(request.url_for('static', path='/js/notifications.js'))
+
+    html = f"""
+    <html>
+    <head><title>Debug Info</title></head>
+    <body>
+        <h1>Debug Information</h1>
+        <h2>Request Info:</h2>
+        <ul>
+            <li>Root path: {request.scope.get('root_path', 'NOT SET')}</li>
+            <li>URL: {request.url}</li>
+            <li>Base URL: {request.base_url}</li>
+        </ul>
+
+        <h2>Headers:</h2>
+        <ul>
+        {''.join(f'<li>{k}: {v}</li>' for k, v in request.headers.items())}
+        </ul>
+
+        <h2>Generated URLs:</h2>
+        <ul>
+            <li>Static CSS: <a href="{static_css}">{static_css}</a></li>
+            <li>Static JS: <a href="{static_js}">{static_js}</a></li>
+            <li>History: {request.url_for('history_page')}</li>
+            <li>Record: {request.url_for('record_page')}</li>
+        </ul>
+
+        <h2>Test CSS Load:</h2>
+        <link rel="stylesheet" href="{static_css}">
+        <div style="color: red; font-size: 20px;">This should be styled if CSS loads</div>
+
+        <h2>Test JS Load:</h2>
+        <script src="{static_js}"></script>
+        <script>
+        if (typeof showNotification === 'function') {{
+            document.write('<p style="color: green;">✓ JavaScript loaded successfully!</p>');
+        }} else {{
+            document.write('<p style="color: red;">✗ JavaScript failed to load</p>');
+        }}
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
 
 
 if __name__ == "__main__":

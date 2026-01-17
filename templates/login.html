@@ -62,7 +62,7 @@
         };
 
         try {
-            const response = await fetch(window.ROOT_PATH + '/auth/login', {
+            const response = await apiFetch('/auth/login', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -71,7 +71,7 @@
             });
 
             if (response.ok) {
-                window.location.href = window.ROOT_PATH + '/history';
+                navigate('/history');
             } else {
                 const error = await response.json();
                 alert(error.detail || 'Login failed');
@@ -91,7 +91,7 @@
         };
 
         try {
-            const response = await fetch(window.ROOT_PATH + '/auth/register', {
+            const response = await apiFetch('/auth/register', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -100,7 +100,7 @@
             });
 
             if (response.ok) {
-                window.location.href = window.ROOT_PATH + '/history';
+                navigate('/history');
             } else {
                 const error = await response.json();
                 // Handle Pydantic validation errors
