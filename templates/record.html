@@ -16,6 +16,20 @@
         <!-- Timer -->
         <div id="timer" class="timer" style="display: none;">00:00</div>
 
+        <!-- Photo upload (optional) -->
+        <div id="photoSection" class="photo-section" style="display: none; margin-top: 20px;">
+            <label for="photoInput" style="display: block; margin-bottom: 10px; font-weight: 500;">
+                Add a photo (optional):
+            </label>
+            <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" style="display: block; margin-bottom: 10px;">
+            <div id="photoPreview" style="display: none; margin-bottom: 10px;">
+                <img id="photoPreviewImage" style="max-width: 200px; max-height: 200px; border-radius: 8px; border: 2px solid #ddd;">
+            </div>
+            <button id="uploadButton" class="btn-primary" style="margin-top: 10px;">
+                Upload Recording
+            </button>
+        </div>
+
         <!-- Processing -->
         <div id="processing" class="processing" style="display: none;">
             <div class="spinner"></div>

@@ -26,6 +26,8 @@ torch==2.1.2
 transformers==4.36.2
 librosa==0.10.1
 numpy==1.26.3
+funasr
+modelscope
 
 # Utilities
 python-dotenv==1.0.0

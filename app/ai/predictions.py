@@ -10,7 +10,9 @@ import json
 
 from app.models import CryInstance
 from app.ai.embeddings import generate_embedding
-from app.vector_db import add_embedding, search_similar, update_embedding_metadata
+from app.vector_db import search_similar, update_embedding_metadata
+from app.ai.embedding_standardization import process_and_store_embedding
+from app.utils.photo import get_photo_base64, get_photo_mimetype
 
 logger = logging.getLogger(__name__)
 
@@ -73,18 +75,19 @@ async def predict_cry_reason(cry_id: int, user_id: int, db: Session) -> Optional
                 "message": f"Failed to generate embedding: {str(e)}",
             }
 
-        # Store embedding in Chroma
-        logger.info(f"Storing embedding in Chroma for cry_id={cry_id}")
+        # Process and store embedding (raw + standardized)
+        logger.info(f"Processing and storing embedding for cry_id={cry_id}")
         try:
-            add_embedding(
+            process_and_store_embedding(
+                db=db,
                 cry_id=cry_id,
                 user_id=user_id,
-                embedding=embedding,
+                raw_embedding=embedding,
                 reason=cry.reason,
-                timestamp=cry.recorded_at.isoformat(),
+                timestamp=cry.recorded_at.isoformat()
             )
         except Exception as e:
-            logger.error(f"Failed to store embedding in Chroma: {e}")
+            logger.error(f"Failed to process and store embedding: {e}")
             # Continue anyway, we can still try to search
 
         # Need at least NUM_CRIES_FOR_PREDICTIONS validated recordings for predictions
@@ -137,7 +140,7 @@ async def predict_cry_reason(cry_id: int, user_id: int, db: Session) -> Optional
 
         # Call OpenAI to predict reason and solution
         logger.info(f"Calling OpenAI to predict reason and solution for cry_id={cry_id}")
-        prediction = await call_openai_for_prediction(historical_data)
+        prediction = await call_openai_for_prediction(historical_data, cry)
 
         if not prediction:
             return {
@@ -170,12 +173,13 @@ async def predict_cry_reason(cry_id: int, user_id: int, db: Session) -> Optional
         }
 
 
-async def call_openai_for_prediction(historical_data: list) -> Optional[dict]:
+async def call_openai_for_prediction(historical_data: list, cry: CryInstance) -> Optional[dict]:
     """
     Call OpenAI to predict cry reason and solution based on historical data.
 
     Args:
         historical_data: List of similar past cries with reasons, solutions, and notes
+        cry: Current CryInstance (for photo if available)
 
     Returns:
         Prediction dict with reason, solution, and notes
@@ -185,8 +189,12 @@ async def call_openai_for_prediction(historical_data: list) -> Optional[dict]:
         return None
 
     try:
+        # Check if photo is available for this cry
+        has_photo = cry.photo_file_path and os.path.exists(cry.photo_file_path)
+        photo_note = "\n\nA photo of the baby has been provided. Please reference the baby's visual state (facial expressions, body language, surroundings) in your analysis." if has_photo else ""
+
         # Build prompt
-        system_prompt = """You are an expert baby cry analyzer. Based on similar past recordings,
+        system_prompt = f"""You are an expert baby cry analyzer. Based on similar past recordings,
 predict why the baby is crying now and suggest a solution that might help.
 
 Provide:
@@ -194,27 +202,53 @@ Provide:
 2. A practical solution (1 sentence, e.g., "Try feeding", "Rock gently to sleep")
 3. Optional brief notes if relevant (1 sentence)
 
-Respond in JSON format with keys: "reason", "solution", "notes"
+Respond in JSON format with keys: "reason", "solution", "notes"{photo_note}
 """
 
-        user_prompt = f"""Similar past cries:
+        user_prompt_text = f"""Similar past cries:
 
 """
         for i, data in enumerate(historical_data, 1):
-            user_prompt += f"{i}. Reason: {data['reason']}, Solution: {data['solution']}, Notes: {data['notes']}, Similarity: {data['similarity']}\n"
+            user_prompt_text += f"{i}. Reason: {data['reason']}, Solution: {data['solution']}, Notes: {data['notes']}, Similarity: {data['similarity']}\n"
 
-        user_prompt += "\nBased on these similar past recordings, predict the most likely reason and suggest a solution."
+        user_prompt_text += "\nBased on these similar past recordings, predict the most likely reason and suggest a solution."
 
+        logger.info(f"Calling model with user prompt: " + user_prompt_text)
 
-        logger.info(f"Calling model with user prompt: " + user_prompt)
+        # Build messages based on whether photo is available
+        if has_photo:
+            # Include photo in the user message
+            photo_base64 = get_photo_base64(cry.photo_file_path)
+            photo_mimetype = get_photo_mimetype(cry.photo_file_path)
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{photo_mimetype};base64,{photo_base64}"
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": user_prompt_text
+                        }
+                    ]
+                }
+            ]
+        else:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt_text},
+            ]
 
         # Call OpenAI (using gpt-4.1-mini for cost efficiency and better performance)
         response = client.chat.completions.create(
             model="gpt-4.1-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            messages=messages,
             temperature=0.7,
             max_tokens=200,
         )

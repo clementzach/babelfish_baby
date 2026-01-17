@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from openai import OpenAI
 
 from app.models import CryInstance, ChatConversation
+from app.utils.photo import get_photo_base64, get_photo_mimetype
 
 logger = logging.getLogger(__name__)
 
@@ -55,13 +56,17 @@ async def generate_advice(
     reason_text = cry.reason if cry.reason else "not yet determined"
     solution_text = cry.solution if cry.solution else "not yet recorded"
 
+    # Check if photo is available
+    has_photo = cry.photo_file_path and os.path.exists(cry.photo_file_path)
+    photo_note = "\n- A photo of the baby has been provided. Please reference the baby's visual state (facial expressions, body language, surroundings) in your analysis." if has_photo else ""
+
     context = f"""You are advising a parent about a baby crying episode.
 
 Context:
 - Cry reason: {reason_text}
 - Solution that helped: {solution_text}
 - Time recorded: {cry.recorded_at.strftime("%B %d, %Y at %I:%M %p")}
-- Parent's notes: {cry.notes if cry.notes else "None"}
+- Parent's notes: {cry.notes if cry.notes else "None"}{photo_note}
 
 Provide practical, safe, evidence-based advice. Keep responses concise (3-4 sentences).
 Always prioritize safety and suggest consulting a pediatrician for concerning symptoms.
@@ -70,7 +75,35 @@ the cry record with your insights based on the conversation.
 """
 
     # Build messages for OpenAI
-    messages = [{"role": "system", "content": context}]
+    if has_photo:
+        # Include photo in the first user message
+        photo_base64 = get_photo_base64(cry.photo_file_path)
+        photo_mimetype = get_photo_mimetype(cry.photo_file_path)
+
+        messages = [
+            {"role": "system", "content": context},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{photo_mimetype};base64,{photo_base64}"
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "text": "This is a photo of the baby during or shortly after the crying episode."
+                    }
+                ]
+            },
+            {
+                "role": "assistant",
+                "content": "I can see the photo. I'll reference the baby's visual state in my advice."
+            }
+        ]
+    else:
+        messages = [{"role": "system", "content": context}]
 
     # Add chat history
     for msg in chat_history:

@@ -76,7 +76,7 @@ def add_embedding(
     Args:
         cry_id: Cry instance ID
         user_id: User ID (for filtering)
-        embedding: 384-dimensional embedding vector from Whisper
+        embedding: 1152-dimensional embedding vector (384 Whisper + 768 emotion2vec)
         reason: Optional cry reason (free text)
         timestamp: Optional ISO 8601 timestamp
     """

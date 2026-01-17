@@ -26,15 +26,27 @@ async function loadCryDetails() {
 
         // Render summary
         const summaryEl = document.getElementById('crySummary');
+
+        // Check if photo exists
+        const photoHtml = cryDetails.photo_file_path ? `
+            <div style="margin-top: 15px;">
+                <img src="/api/cries/${cryId}/photo" alt="Baby photo" style="max-width: 300px; max-height: 300px; border-radius: 8px; border: 2px solid #ddd; cursor: pointer;" onclick="window.open('/api/cries/${cryId}/photo', '_blank')">
+            </div>
+        ` : '';
+
         summaryEl.innerHTML = `
             <h3>Cry Details</h3>
             <div class="cry-details">
                 <div class="detail-item">
                     <div class="detail-label">Reason:</div>
                     <div class="detail-value">
-                        <span class="cry-category category-${cryDetails.category || 'other'}">
-                            ${cryDetails.category ? cryDetails.category.charAt(0).toUpperCase() + cryDetails.category.slice(1) : 'Not labeled'}
-                        </span>
+                        ${cryDetails.reason || 'Not labeled'}
+                    </div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Solution:</div>
+                    <div class="detail-value">
+                        ${cryDetails.solution || 'Not recorded'}
                     </div>
                 </div>
                 <div class="detail-item">
@@ -43,6 +55,7 @@ async function loadCryDetails() {
                 </div>
             </div>
             ${cryDetails.notes ? `<div style="margin-top: 15px;"><strong>Notes:</strong> ${cryDetails.notes}</div>` : ''}
+            ${photoHtml}
         `;
     } catch (error) {
         console.error('Failed to load cry details:', error);

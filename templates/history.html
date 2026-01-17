@@ -243,6 +243,30 @@ function createCryItem(cry) {
         div.appendChild(audioContainer);
     }
 
+    // Photo thumbnail (if photo exists)
+    if (cry.has_photo) {
+        const photoContainer = document.createElement('div');
+        photoContainer.className = 'photo-thumbnail-container';
+        photoContainer.style.marginTop = '10px';
+
+        const img = document.createElement('img');
+        img.src = `/api/cries/${cry.cry_id}/photo`;
+        img.alt = 'Baby photo';
+        img.className = 'photo-thumbnail';
+        img.style.maxWidth = '150px';
+        img.style.maxHeight = '150px';
+        img.style.borderRadius = '8px';
+        img.style.border = '2px solid #ddd';
+        img.style.cursor = 'pointer';
+        img.onclick = () => {
+            // Open full size in new tab
+            window.open(`/api/cries/${cry.cry_id}/photo`, '_blank');
+        };
+
+        photoContainer.appendChild(img);
+        div.appendChild(photoContainer);
+    }
+
     // Status indicators and Actions
     const actions = document.createElement('div');
     actions.className = 'cry-actions';

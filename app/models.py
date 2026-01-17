@@ -29,6 +29,7 @@ class User(Base):
 
     # Relationships
     cry_instances = relationship("CryInstance", back_populates="user", cascade="all, delete-orphan")
+    embedding_stats = relationship("UserEmbeddingStats", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
 
 class CryInstance(Base):
@@ -39,6 +40,7 @@ class CryInstance(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     audio_file_path = Column(String(500), nullable=False)
+    photo_file_path = Column(String(500), nullable=True)
     recorded_at = Column(DateTime(timezone=True), nullable=False, index=True)
 
     # AI-predicted reason and solution (not yet validated by user)
@@ -71,6 +73,7 @@ class CryInstance(Base):
     # Relationships
     user = relationship("User", back_populates="cry_instances")
     chat_conversations = relationship("ChatConversation", back_populates="cry_instance", cascade="all, delete-orphan")
+    raw_embedding = relationship("CryEmbeddingRaw", back_populates="cry_instance", uselist=False, cascade="all, delete-orphan")
 
 
 class ChatConversation(Base):
@@ -90,3 +93,33 @@ class ChatConversation(Base):
 
     # Relationships
     cry_instance = relationship("CryInstance", back_populates="chat_conversations")
+
+
+class CryEmbeddingRaw(Base):
+    """Raw embeddings for cry instances (before user-level standardization)."""
+
+    __tablename__ = "cry_embeddings_raw"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cry_id = Column(Integer, ForeignKey("cry_instances.id"), nullable=False, unique=True, index=True)
+    embedding_json = Column(Text, nullable=False)  # JSON array of 1152 floats
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    cry_instance = relationship("CryInstance", back_populates="raw_embedding")
+
+
+class UserEmbeddingStats(Base):
+    """User-level embedding statistics for standardization."""
+
+    __tablename__ = "user_embedding_stats"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    mean_json = Column(Text, nullable=False)  # JSON array of 1152 floats
+    std_json = Column(Text, nullable=False)   # JSON array of 1152 floats
+    cry_count = Column(Integer, nullable=False, default=0)  # Number of cries used for stats
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    user = relationship("User", back_populates="embedding_stats")

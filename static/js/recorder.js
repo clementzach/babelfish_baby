@@ -15,12 +15,19 @@ const buttonText = document.getElementById('buttonText');
 const timerEl = document.getElementById('timer');
 const instructionsEl = document.getElementById('instructions');
 const processingEl = document.getElementById('processing');
+const photoSection = document.getElementById('photoSection');
+const photoInput = document.getElementById('photoInput');
+const photoPreview = document.getElementById('photoPreview');
+const photoPreviewImage = document.getElementById('photoPreviewImage');
+const uploadButton = document.getElementById('uploadButton');
 
 // Recording state
 let isRecording = false;
 
 // Initialize
 recordButton.addEventListener('click', toggleRecording);
+photoInput.addEventListener('change', handlePhotoSelect);
+uploadButton.addEventListener('click', handleUpload);
 
 async function toggleRecording() {
     if (!isRecording) {
@@ -145,16 +152,63 @@ async function handleRecordingComplete() {
         return;
     }
 
-    // Show processing
-    processingEl.style.display = 'block';
-    instructionsEl.textContent = 'Processing your recording...';
-
     // Create blob from chunks
     const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
 
-    // Upload to server
+    // Store audio blob globally for later upload
+    window.recordedAudioBlob = audioBlob;
+
+    // Show photo upload section
+    instructionsEl.textContent = 'Recording complete! Optionally add a photo, then upload.';
+    photoSection.style.display = 'block';
+}
+
+function handlePhotoSelect(event) {
+    const file = event.target.files[0];
+    if (!file) {
+        photoPreview.style.display = 'none';
+        return;
+    }
+
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+        showNotification('Please select a valid image file (JPEG, PNG, or WebP)', 'error');
+        photoInput.value = '';
+        return;
+    }
+
+    // Validate file size (10MB max)
+    const maxSize = 10 * 1024 * 1024;
+    if (file.size > maxSize) {
+        showNotification('Photo file is too large (max 10MB)', 'error');
+        photoInput.value = '';
+        return;
+    }
+
+    // Show preview
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        photoPreviewImage.src = e.target.result;
+        photoPreview.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+}
+
+async function handleUpload() {
+    if (!window.recordedAudioBlob) {
+        showNotification('No recording found', 'error');
+        return;
+    }
+
+    // Show processing
+    uploadButton.disabled = true;
+    processingEl.style.display = 'block';
+    instructionsEl.textContent = 'Uploading your recording...';
+    photoSection.style.display = 'none';
+
     try {
-        await uploadRecording(audioBlob);
+        await uploadRecording(window.recordedAudioBlob);
     } catch (error) {
         console.error('Upload failed:', error);
         showNotification('Failed to upload recording: ' + error.message, 'error');
@@ -170,6 +224,11 @@ async function uploadRecording(audioBlob) {
     const filename = `recording_${Date.now()}.webm`;
     const file = new File([audioBlob], filename, { type: audioBlob.type });
     formData.append('audio_file', file);
+
+    // Add photo if selected
+    if (photoInput.files && photoInput.files[0]) {
+        formData.append('photo_file', photoInput.files[0]);
+    }
 
     // Add timestamp
     const now = new Date().toISOString();
@@ -204,6 +263,11 @@ function resetUI() {
     processingEl.style.display = 'none';
     timerEl.style.display = 'none';
     timerEl.textContent = '00:00';
+    photoSection.style.display = 'none';
+    photoInput.value = '';
+    photoPreview.style.display = 'none';
+    uploadButton.disabled = false;
+    window.recordedAudioBlob = null;
 }
 
 // Check for microphone support

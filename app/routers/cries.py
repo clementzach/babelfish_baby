@@ -16,6 +16,7 @@ from app.dependencies import get_current_user
 from app.models import User, CryInstance
 from app.utils.helpers import relative_time, format_timestamp
 from app.utils.audio import validate_audio_file, convert_to_24khz_wav, save_uploaded_file
+from app.utils.photo import validate_photo_file, save_uploaded_photo
 from app.ai.predictions import predict_cry_reason
 from app.vector_db import update_embedding_metadata
 import tempfile
@@ -38,6 +39,7 @@ class CryHistoryItem(BaseModel):
     validation_status: Optional[bool]
     needs_labeling: bool
     has_audio: bool
+    has_photo: bool
     chat_message_count: int
 
     class Config:
@@ -84,6 +86,7 @@ class NotesUpdateRequest(BaseModel):
 async def record_cry(
     audio_file: UploadFile = File(...),
     recorded_at: str = Form(...),
+    photo_file: UploadFile = File(None),
     background_tasks: BackgroundTasks = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -94,6 +97,7 @@ async def record_cry(
     Args:
         audio_file: Audio file (WAV, WebM, OGG, MP4, etc.)
         recorded_at: ISO 8601 timestamp of when recording was made
+        photo_file: Optional photo file (JPEG, PNG, WebP)
         background_tasks: FastAPI background tasks
         current_user: Authenticated user
         db: Database session
@@ -104,8 +108,12 @@ async def record_cry(
     Raises:
         HTTPException: If file is invalid or processing fails
     """
-    # Validate file
+    # Validate audio file
     validate_audio_file(audio_file)
+
+    # Validate photo file if provided
+    if photo_file and photo_file.filename:
+        validate_photo_file(photo_file)
 
     # Parse timestamp
     try:
@@ -145,13 +153,35 @@ async def record_cry(
         db.commit()
         db.refresh(cry)
 
-        # Rename file with cry_id
+        # Rename audio file with cry_id
         final_filename = f"{timestamp_str}_cry_{cry.id}.wav"
         final_path = os.path.join(user_dir, final_filename)
         os.rename(temp_output_path, final_path)
 
-        # Update database with final path
+        # Update database with final audio path
         cry.audio_file_path = final_path
+
+        # Handle photo if provided
+        if photo_file and photo_file.filename:
+            # Create photo directory
+            photo_dir = os.getenv("PHOTO_FILES_DIR", "./photo_files")
+            user_photo_dir = os.path.join(photo_dir, f"user_{current_user.id}")
+            os.makedirs(user_photo_dir, exist_ok=True)
+
+            # Determine photo extension
+            photo_ext = os.path.splitext(photo_file.filename)[1].lower()
+            if not photo_ext:
+                photo_ext = ".jpg"  # Default to jpg
+
+            # Save photo
+            photo_filename = f"photo_{cry.id}{photo_ext}"
+            photo_path = os.path.join(user_photo_dir, photo_filename)
+
+            await save_uploaded_photo(photo_file, photo_path)
+
+            # Update database with photo path
+            cry.photo_file_path = photo_path
+
         db.commit()
 
         # Trigger AI prediction in background
@@ -230,6 +260,7 @@ async def get_cry_history(
                 validation_status=cry.validation_status,
                 needs_labeling=needs_labeling,
                 has_audio=os.path.exists(cry.audio_file_path) if cry.audio_file_path else False,
+                has_photo=os.path.exists(cry.photo_file_path) if cry.photo_file_path else False,
                 chat_message_count=chat_count or 0,
             )
         )
@@ -550,4 +581,56 @@ async def get_cry_audio(
         path=cry.audio_file_path,
         media_type="audio/wav",
         filename=f"cry_{cry_id}.wav",
+    )
+
+
+@router.get("/{cry_id}/photo")
+async def get_cry_photo(
+    cry_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Stream photo file for a cry.
+
+    Args:
+        cry_id: Cry instance ID
+        current_user: Authenticated user
+        db: Database session
+
+    Returns:
+        Photo file as streaming response
+
+    Raises:
+        HTTPException: If cry not found, belongs to different user, or photo file missing
+    """
+    cry = db.query(CryInstance).filter(CryInstance.id == cry_id).first()
+
+    if not cry:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Cry not found",
+        )
+
+    if cry.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+    # Check if photo file exists
+    if not cry.photo_file_path or not os.path.exists(cry.photo_file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Photo file not found",
+        )
+
+    # Determine media type from file extension
+    from app.utils.photo import get_photo_mimetype
+    media_type = get_photo_mimetype(cry.photo_file_path)
+
+    return FileResponse(
+        path=cry.photo_file_path,
+        media_type=media_type,
+        filename=f"cry_{cry_id}_photo{os.path.splitext(cry.photo_file_path)[1]}",
     )
