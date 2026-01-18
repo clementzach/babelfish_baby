@@ -48,15 +48,25 @@ def create_session(response: Response, user_id: int):
         response: FastAPI Response object
         user_id: User ID to store in session
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     # For MVP, we'll use a simple approach with signed cookies
     # In production, consider using a proper session management library
 
     # Get root path for reverse proxy support
     root_path = os.getenv("ROOT_PATH", "")
-    cookie_path = root_path + "/" if root_path else "/"
+    # Normalize path - ensure it starts with / and doesn't end with / unless it's root
+    if root_path:
+        cookie_path = root_path if root_path.endswith("/") else root_path + "/"
+    else:
+        cookie_path = "/"
 
     # Use secure cookies in production (when HTTPS is available)
     is_production = os.getenv("ENVIRONMENT", "development") == "production"
+
+    logger.info(f"[Auth] Creating session for user {user_id}")
+    logger.info(f"[Auth] Cookie path: {cookie_path}, secure: {is_production}")
 
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
@@ -68,6 +78,8 @@ def create_session(response: Response, user_id: int):
         path=cookie_path,  # Set path for reverse proxy
     )
 
+    logger.info(f"[Auth] Session cookie set successfully")
+
 
 def destroy_session(response: Response):
     """
@@ -76,8 +88,16 @@ def destroy_session(response: Response):
     Args:
         response: FastAPI Response object
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     # Get root path for reverse proxy support
     root_path = os.getenv("ROOT_PATH", "")
-    cookie_path = root_path + "/" if root_path else "/"
+    # Normalize path - ensure it starts with / and doesn't end with / unless it's root
+    if root_path:
+        cookie_path = root_path if root_path.endswith("/") else root_path + "/"
+    else:
+        cookie_path = "/"
 
+    logger.info(f"[Auth] Destroying session, cookie path: {cookie_path}")
     response.delete_cookie(key=SESSION_COOKIE_NAME, path=cookie_path)

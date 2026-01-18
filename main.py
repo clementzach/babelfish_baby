@@ -189,11 +189,15 @@ async def health_check():
 
 @app.get("/debug")
 async def debug_info(request: Request):
-    """Debug endpoint to check URL generation."""
+    """Debug endpoint to check URL generation and cookies."""
     from fastapi.responses import HTMLResponse
 
     static_css = str(request.url_for('static', path='/css/style.css'))
     static_js = str(request.url_for('static', path='/js/notifications.js'))
+
+    # Get cookies
+    cookies = dict(request.cookies)
+    session_cookie = cookies.get('session', 'NOT SET')
 
     html = f"""
     <html>
@@ -205,6 +209,12 @@ async def debug_info(request: Request):
             <li>Root path: {request.scope.get('root_path', 'NOT SET')}</li>
             <li>URL: {request.url}</li>
             <li>Base URL: {request.base_url}</li>
+        </ul>
+
+        <h2>Cookies:</h2>
+        <ul>
+            <li><strong>Session cookie:</strong> {session_cookie}</li>
+            <li><strong>All cookies:</strong> {', '.join(f'{k}={v[:20]}...' if len(v) > 20 else f'{k}={v}' for k, v in cookies.items()) if cookies else 'No cookies'}</li>
         </ul>
 
         <h2>Headers:</h2>
