@@ -182,8 +182,17 @@ function handlePhotoSelect(event) {
     // Also check file extension for HEIC since iOS might send it as application/octet-stream
     const fileName = file.name.toLowerCase();
     const isHeic = fileName.endsWith('.heic') || fileName.endsWith('.heif');
+    const isImage = file.type.startsWith('image/');
 
-    if (!allowedTypes.includes(file.type) && !isHeic) {
+    console.log('[Photo] Validation check:', {
+        type: file.type,
+        isHeic: isHeic,
+        isImage: isImage,
+        typeAllowed: allowedTypes.includes(file.type)
+    });
+
+    // Allow if: type is in allowed list, OR it's HEIC by extension, OR it's any image type
+    if (!allowedTypes.includes(file.type) && !isHeic && !isImage) {
         console.error('[Photo] Invalid file type:', file.type, 'filename:', file.name);
         showNotification('Please select a valid image file (JPEG, PNG, WebP, or HEIC)', 'error');
         photoInput.value = '';
@@ -192,6 +201,7 @@ function handlePhotoSelect(event) {
 
     if (isHeic) {
         console.log('[Photo] HEIC file detected (will be converted to JPG on server)');
+        showNotification('HEIC detected - will convert to JPG during upload', 'info');
     }
 
     // Validate file size (10MB max)
@@ -221,6 +231,26 @@ async function handleUpload() {
         return;
     }
 
+    console.log('[Upload] handleUpload called');
+
+    // Check if photo is selected and log details
+    if (photoInput.files && photoInput.files[0]) {
+        const photoFile = photoInput.files[0];
+        console.log('[Upload] Photo file details:', {
+            name: photoFile.name,
+            size: photoFile.size,
+            sizeInMB: (photoFile.size / 1024 / 1024).toFixed(2),
+            type: photoFile.type,
+            lastModified: new Date(photoFile.lastModified).toISOString()
+        });
+
+        // Check if file is extremely large
+        if (photoFile.size > 50 * 1024 * 1024) {
+            console.error('[Upload] Photo is larger than 50MB, this may cause issues');
+            showNotification('Photo file is very large (' + (photoFile.size / 1024 / 1024).toFixed(1) + 'MB). This may take a while or fail.', 'info');
+        }
+    }
+
     // Show processing
     uploadButton.disabled = true;
     processingEl.style.display = 'block';
@@ -230,8 +260,17 @@ async function handleUpload() {
     try {
         await uploadRecording(window.recordedAudioBlob);
     } catch (error) {
-        console.error('Upload failed:', error);
-        showNotification('Failed to upload recording: ' + error.message, 'error');
+        console.error('[Upload] Upload failed with error:', error);
+        console.error('[Upload] Error stack:', error.stack);
+        console.error('[Upload] Error name:', error.name);
+        console.error('[Upload] Error message:', error.message);
+
+        let errorMsg = error.message || 'Unknown error';
+        if (error.message === 'Load failed' || error.message === 'Failed to fetch') {
+            errorMsg = 'Network error - file may be too large or connection timed out';
+        }
+
+        showNotification('Failed to upload recording: ' + errorMsg, 'error');
         resetUI();
     }
 }
@@ -283,21 +322,36 @@ async function uploadRecording(audioBlob) {
 
     // Upload
     console.log('[Upload] Sending request to /api/cries/record');
-    const response = await apiFetch('/api/cries/record', {
-        method: 'POST',
-        body: formData
-    });
+    console.log('[Upload] Request will include audio + ' + (photoInput.files && photoInput.files[0] ? 'photo' : 'no photo'));
 
-    console.log('[Upload] Response received:', {
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok
-    });
+    let response;
+    try {
+        response = await apiFetch('/api/cries/record', {
+            method: 'POST',
+            body: formData
+        });
+        console.log('[Upload] Response received:', {
+            status: response.status,
+            statusText: response.statusText,
+            ok: response.ok
+        });
+    } catch (fetchError) {
+        console.error('[Upload] Fetch failed:', fetchError);
+        console.error('[Upload] This usually means: network timeout, file too large, or CORS issue');
+        throw new Error('Network error: ' + (fetchError.message || 'Upload failed'));
+    }
 
     if (!response.ok) {
-        const error = await response.json();
-        console.error('[Upload] Upload failed:', error);
-        throw new Error(error.detail || 'Upload failed');
+        let errorDetail;
+        try {
+            const error = await response.json();
+            errorDetail = error.detail || 'Upload failed';
+            console.error('[Upload] Server returned error:', error);
+        } catch (e) {
+            errorDetail = `Server error: ${response.status} ${response.statusText}`;
+            console.error('[Upload] Could not parse error response:', e);
+        }
+        throw new Error(errorDetail);
     }
 
     const result = await response.json();
