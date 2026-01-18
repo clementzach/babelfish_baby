@@ -178,12 +178,20 @@ function handlePhotoSelect(event) {
     }
 
     // Validate file type
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!allowedTypes.includes(file.type)) {
-        console.error('[Photo] Invalid file type:', file.type);
-        showNotification('Please select a valid image file (JPEG, PNG, or WebP)', 'error');
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+    // Also check file extension for HEIC since iOS might send it as application/octet-stream
+    const fileName = file.name.toLowerCase();
+    const isHeic = fileName.endsWith('.heic') || fileName.endsWith('.heif');
+
+    if (!allowedTypes.includes(file.type) && !isHeic) {
+        console.error('[Photo] Invalid file type:', file.type, 'filename:', file.name);
+        showNotification('Please select a valid image file (JPEG, PNG, WebP, or HEIC)', 'error');
         photoInput.value = '';
         return;
+    }
+
+    if (isHeic) {
+        console.log('[Photo] HEIC file detected (will be converted to JPG on server)');
     }
 
     // Validate file size (10MB max)

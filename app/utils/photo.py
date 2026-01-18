@@ -9,12 +9,25 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Try to import pillow-heif for HEIC support
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+    HEIC_SUPPORT = True
+    logger.info("[Photo] HEIC support enabled via pillow-heif")
+except ImportError:
+    HEIC_SUPPORT = False
+    logger.warning("[Photo] pillow-heif not installed - HEIC files will not be supported")
+
 # Allowed photo formats
-ALLOWED_PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+ALLOWED_PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 ALLOWED_PHOTO_MIMETYPES = {
     "image/jpeg",
     "image/png",
     "image/webp",
+    "image/heic",
+    "image/heif",
+    "application/octet-stream",  # iOS sometimes sends HEIC as this
 }
 
 # Size limits
@@ -62,13 +75,16 @@ def validate_photo_file(photo_file: UploadFile) -> None:
     logger.info("[Photo Validation] Validation passed")
 
 
-async def save_uploaded_photo(photo_file: UploadFile, output_path: str) -> None:
+async def save_uploaded_photo(photo_file: UploadFile, output_path: str) -> str:
     """
-    Save uploaded photo to disk.
+    Save uploaded photo to disk. If photo is HEIC/HEIF, it will be converted to JPG.
 
     Args:
         photo_file: Uploaded photo file
         output_path: Destination file path
+
+    Returns:
+        The actual path where the file was saved (may differ if HEIC was converted to JPG)
 
     Raises:
         HTTPException: If save fails or file is too large
@@ -89,17 +105,47 @@ async def save_uploaded_photo(photo_file: UploadFile, output_path: str) -> None:
             detail=f"Photo file too large. Maximum size: {MAX_PHOTO_FILE_SIZE_MB}MB",
         )
 
-    # Verify it's a valid image
-    logger.info("[Photo Save] Verifying image integrity...")
+    # Open and verify the image
+    logger.info("[Photo Save] Opening and verifying image...")
     try:
         image = Image.open(io.BytesIO(content))
-        image.verify()  # Verify it's a valid image
-        logger.info(f"[Photo Save] Image verified: {image.format}, size: {image.size}")
+        image_format = image.format
+        image_size = image.size
+        logger.info(f"[Photo Save] Image opened: format={image_format}, size={image_size}")
+
+        # Check if it's a HEIC file that needs conversion
+        is_heic = image_format in ['HEIF', 'HEIC'] or output_path.lower().endswith(('.heic', '.heif'))
+
+        if is_heic:
+            logger.info("[Photo Save] HEIC/HEIF detected, converting to JPG...")
+            # Convert to JPG
+            # Need to re-open since verify() consumes the image
+            image = Image.open(io.BytesIO(content))
+
+            # Convert to RGB (HEIC might be in a different color space)
+            if image.mode != 'RGB':
+                logger.info(f"[Photo Save] Converting from {image.mode} to RGB")
+                image = image.convert('RGB')
+
+            # Change output path to .jpg
+            output_path = os.path.splitext(output_path)[0] + '.jpg'
+            logger.info(f"[Photo Save] Updated output path to: {output_path}")
+
+            # Save as JPG to a BytesIO buffer
+            output_buffer = io.BytesIO()
+            image.save(output_buffer, format='JPEG', quality=90)
+            content = output_buffer.getvalue()
+            logger.info(f"[Photo Save] Converted to JPG, new size: {len(content)} bytes")
+        else:
+            # For non-HEIC images, just verify
+            image.verify()
+            logger.info(f"[Photo Save] Image verified: {image_format}")
+
     except Exception as e:
-        logger.error(f"[Photo Save] Image verification failed: {e}")
+        logger.error(f"[Photo Save] Image processing failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Invalid or corrupted image file",
+            detail=f"Invalid or corrupted image file: {str(e)}",
         )
 
     # Save to disk
@@ -118,6 +164,9 @@ async def save_uploaded_photo(photo_file: UploadFile, output_path: str) -> None:
     except Exception as e:
         logger.error(f"[Photo Save] Failed to write file: {e}")
         raise
+
+    # Return the actual path (may have changed from .heic to .jpg)
+    return output_path
 
 
 def get_photo_base64(photo_path: str) -> str:

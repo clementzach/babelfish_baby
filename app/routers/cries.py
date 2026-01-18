@@ -197,21 +197,22 @@ async def record_cry(
                 photo_ext = ".jpg"  # Default to jpg
             logger.info(f"[Record] Photo extension: {photo_ext}")
 
-            # Save photo
+            # Save photo (may convert HEIC to JPG)
             photo_filename = f"photo_{cry.id}{photo_ext}"
             photo_path = os.path.join(user_photo_dir, photo_filename)
             logger.info(f"[Record] Saving photo to: {photo_path}")
 
             try:
-                await save_uploaded_photo(photo_file, photo_path)
-                logger.info(f"[Record] Photo saved successfully")
+                # save_uploaded_photo returns the actual path (may be .jpg if converted from HEIC)
+                actual_photo_path = await save_uploaded_photo(photo_file, photo_path)
+                logger.info(f"[Record] Photo saved successfully to: {actual_photo_path}")
             except Exception as e:
                 logger.error(f"[Record] Failed to save photo: {e}")
                 raise
 
-            # Update database with photo path
-            cry.photo_file_path = photo_path
-            logger.info(f"[Record] Updated database with photo path")
+            # Update database with actual photo path
+            cry.photo_file_path = actual_photo_path
+            logger.info(f"[Record] Updated database with photo path: {actual_photo_path}")
         else:
             logger.info(f"[Record] No photo to process for cry {cry.id}")
 
